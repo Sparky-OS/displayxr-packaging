@@ -1,0 +1,60 @@
+DisplayXR on Sparky Stereo OS
+=============================
+
+Which OpenXR runtime a program gets
+-----------------------------------
+
+An OpenXR program loads the runtime that the OpenXR loader finds (OpenXR
+loader specification, "Linux Active Runtime Location"):
+
+ 1. XR_RUNTIME_JSON, when it is set, names the runtime manifest for that
+    program alone;
+ 2. otherwise openxr/1/active_runtime.json (or active_runtime.<arch>.json)
+    under $XDG_CONFIG_HOME (~/.config), then under each of $XDG_CONFIG_DIRS
+    (/etc/xdg), then under /etc: the first one found wins.
+
+This package registers DisplayXR in the openxr1-active-runtime alternatives
+group, the one Debian's Monado uses for /etc/xdg/openxr/1/active_runtime.json.
+Nothing else is written: the loader specification asks a tool that changes the
+active runtime to change only that link.
+
+ - For the whole system:
+     update-alternatives --config openxr1-active-runtime
+   lists every installed runtime (DisplayXR's manifest is
+   /etc/xdg/openxr/1/openxr_displayxr.json, Monado's
+   /usr/share/openxr/1/openxr_monado.json). In automatic mode the one with the
+   highest priority is active: DisplayXR 60, Monado 50. A choice made by hand
+   stays until it is changed by hand (update-alternatives --auto returns to
+   automatic mode).
+ - For one person, whatever the system's choice is:
+     mkdir -p ~/.config/openxr/1
+     ln -sf /etc/xdg/openxr/1/openxr_displayxr.json ~/.config/openxr/1/active_runtime.json
+   (or Monado's manifest); deleting the link returns to the system's choice.
+ - For one program:
+     XR_RUNTIME_JSON=/usr/share/openxr/1/openxr_monado.json program
+
+What a person sees
+------------------
+
+DisplayXR drives 3D displays, not headsets: an OpenXR program opens a window on
+the desktop. Its sim-display output, the one used when no vendor panel plug-in
+is installed, is built here with two outputs only: 2D, and the two views side
+by side, left first, each at the window's resolution, declared to the desktop.
+Stereo KWin then shows them on every stereo display it drives; a plain 2D
+monitor shows the left view. A desktop that does not take the declaration
+shows the two views side by side, flat, and the runtime's log says why
+("FULL_SBS: ...").
+
+A headset is Monado's: with Monado active, a program goes to the headset, and
+with no headset Monado has nothing to show it on.
+
+The service
+-----------
+
+displayxr.socket is enabled for every user; the first program that needs the
+out-of-process compositor (an XR_DXR_weave present-owner such as the DisplayXR
+browser, or a workspace controller) starts displayxr.service, which ends 30
+seconds after its last client. Ordinary programs run the runtime in their own
+process.
+
+ -- Daniel Ramos (Capitain Jack) <Capitain_Jack@yahoo.com>  Sat, 07 Nov 2026 12:30:00 +0000
