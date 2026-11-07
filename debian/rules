@@ -41,6 +41,17 @@ override_dh_auto_configure:
 		-DXRT_HAVE_SDL2=OFF \
 		-DXRT_SIM_DISPLAY_FULL_SBS_ONLY=ON
 
+# DisplayXR's own test suite. Four tests fail the same way with the unpatched v2.66.3, built with these flags in a
+# Debian testing container (mkdtemp, the mirror calibration solve, the service orchestrator and the tracking host
+# need what a container lacks), so they are left out; tests_desktop_control passes and fails on both builds under
+# load, so a failing test is run again, up to three times.
+NJOBS := $(or $(patsubst parallel=%,%,$(filter parallel=%,$(DEB_BUILD_OPTIONS))),1)
+override_dh_auto_test:
+ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+	cd $(B) && ctest --output-on-failure -j$(NJOBS) --timeout 300 --repeat until-pass:3 \
+		-E '^(tests_mirror_calib|tests_component_loader|tests_service_orchestrator_linux|tests_tracking_host)$$'
+endif
+
 override_dh_auto_install:
 ifeq ($(DEB_HOST_ARCH),amd64)
 	echo "$(RELEASE_DEB_SHA256)  $(RELEASE_DEB)" | sha256sum -c -
