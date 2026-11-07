@@ -1,0 +1,3 @@
+# DisplayXR's own .NET single-file bundle, carried from its release (Debian has no .NET); the .NET runtime inside
+# it carries its own zlib, which this package cannot replace (debian/copyright, Files: release/*)
+displayxr-dashboard: embedded-library zlib [usr/lib/displayxr/bin/displayxr-dashboard]

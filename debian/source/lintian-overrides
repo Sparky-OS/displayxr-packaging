@@ -1,0 +1,2 @@
+# debian/patches/0003-vk-native-declare-wayland.patch adds this file; the paragraph describes the patched tree
+displayxr-runtime source: superfluous-file-pattern src/external/wayland-protocols/kde-stereo-content-v1.xml [debian/copyright:*]

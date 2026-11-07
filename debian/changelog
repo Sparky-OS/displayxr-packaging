@@ -7,8 +7,9 @@ displayxr-runtime (2.66.3-1+stereo3d1) unstable; urgency=medium
     own release package, checked by SHA-256, since Debian has no .NET), and the
     GNOME Shell window-geometry service under its own publisher name.
   * The runtime joins the openxr1-active-runtime alternatives group that
-    Debian's Monado uses, instead of writing /etc/xdg/openxr/1/active_runtime.json
-    itself, so the runtimes installed stay selectable side by side.
+    Debian's Monado uses, instead of writing the loader's
+    /etc/xdg/openxr/1/active_runtime.json itself, so the runtimes installed
+    stay selectable side by side.
   * Full side by side for a stereo desktop (Sparky Stereo OS ORDER 34): the
     display processor flag, sim_display's sbs_full output and the declaration
     of the window to Stereo KWin on Wayland and on X11.
