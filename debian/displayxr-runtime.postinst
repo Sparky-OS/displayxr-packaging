@@ -34,7 +34,13 @@ configure)
 			echo "displayxr-runtime: to let update-alternatives choose, move it away and run: update-alternatives --auto openxr1-active-runtime" >&2
 		fi
 	fi
-	update-alternatives --install "$ACTIVE" openxr1-active-runtime "$MANIFEST" "$PRIORITY"
+	if [ -f "$MANIFEST" ]; then
+		update-alternatives --install "$ACTIVE" openxr1-active-runtime "$MANIFEST" "$PRIORITY"
+	else
+		# a conffile deleted by hand stays deleted (dpkg); say so instead of failing
+		echo "displayxr-runtime: $MANIFEST was deleted, so DisplayXR is not offered as an OpenXR runtime." >&2
+		echo "displayxr-runtime: restore it with: apt-get install --reinstall -o Dpkg::Options::=--force-confmiss displayxr-runtime" >&2
+	fi
 	;;
 esac
 
