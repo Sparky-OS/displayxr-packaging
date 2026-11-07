@@ -1,0 +1,18 @@
+displayxr-runtime (2.66.3-1+stereo3d1) unstable; urgency=medium
+
+  * DisplayXR 2.66.3 built from its release tag, with displayxr-mcp 0.5.6 and
+    displayxr-common 1.2.0 (the two sources its CMake fetches) carried as
+    source components, so nothing is downloaded during the build.
+  * Three binary packages: the runtime, its dashboard (carried from DisplayXR's
+    own release package, checked by SHA-256, since Debian has no .NET), and the
+    GNOME Shell window-geometry service under its own publisher name.
+  * The runtime joins the openxr1-active-runtime alternatives group that
+    Debian's Monado uses, instead of writing /etc/xdg/openxr/1/active_runtime.json
+    itself, so the runtimes installed stay selectable side by side.
+  * Full side by side for a stereo desktop (Sparky Stereo OS ORDER 34): the
+    display processor flag, sim_display's sbs_full output and the declaration
+    of the window to Stereo KWin on Wayland and on X11.
+  * sim_display is built with XRT_SIM_DISPLAY_FULL_SBS_ONLY: its outputs are 2D
+    and full side by side, and Stereo KWin makes every display format from it.
+
+ -- Daniel Ramos (Capitain Jack) <Capitain_Jack@yahoo.com>  Sat, 07 Nov 2026 12:30:00 +0000

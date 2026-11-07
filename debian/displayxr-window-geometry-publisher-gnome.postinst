@@ -1,0 +1,14 @@
+#!/bin/sh
+set -e
+
+#DEBHELPER#
+
+# The notice DisplayXR's packaging contract asks for (docs/specs/runtime/wayland-window-geometry.md, section 4).
+if [ "$1" = configure ]; then
+	echo "displayxr-window-geometry-publisher-gnome: the GNOME Shell extension window-geometry@displayxr.org"
+	echo "  is enabled for every user at their next GNOME login, except a user who has disabled it."
+	echo "  It takes effect only after logging out and back in: a Wayland session cannot reload GNOME Shell."
+	echo "  To turn it back on after disabling it: gnome-extensions enable window-geometry@displayxr.org"
+fi
+
+exit 0

@@ -1,0 +1,65 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Daniel Campos Ramos <Capitain_Jack@yahoo.com>
+Date: Sat, 7 Nov 2026 01:56:53 -0300
+Subject: [PATCH 6/8] fix(vk_native): withdraw full side by side in a 2D
+ rendering mode
+
+A 2D rendering mode (qwerty's V toggle, or an app's request) hands the
+display processor one view, which it passes through. sim_display's own
+output setting stays sbs_full then, so the DP still reports
+XRT_DP_SCANOUT_FLAG_FULL_SIDE_BY_SIDE, and the declared window kept
+twice the width: the single 2D picture was stretched over both views,
+its left half shown to the left eye and its right half to the right eye
+(measured on the runtime's X11 window after V: both eyes red, view 0).
+
+Count the flag only in a rendering mode with two or more views on a 3D
+display state; in a 2D mode the declaration is withdrawn, and it is made
+again when a stereo mode returns.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Daniel Campos Ramos <Capitain_Jack@yahoo.com>
+
+Origin: vendor, https://github.com/danielcamposramos/displayxr-runtime/commit/2660930fe3644a201ac1c535040d5ee0b552ad47
+Forwarded: https://github.com/danielcamposramos/displayxr-runtime/tree/order34-sbs-declare (the pull request to DisplayXR follows the answer on https://github.com/DisplayXR/displayxr-runtime/issues/1928)
+Comment: Sparky Stereo OS ORDER 34; made on v2.65.0, applied to v2.66.3 without conflict.
+Last-Update: 2026-11-07
+---
+ docs/reference/xrt_plugin_iface.md                       | 4 +++-
+ src/xrt/compositor/vk_native/comp_vk_native_compositor.c | 8 +++++++-
+ 2 files changed, 10 insertions(+), 2 deletions(-)
+
+diff --git a/docs/reference/xrt_plugin_iface.md b/docs/reference/xrt_plugin_iface.md
+index c2403c467..d83e38f17 100644
+--- a/docs/reference/xrt_plugin_iface.md
++++ b/docs/reference/xrt_plugin_iface.md
+@@ -438,7 +438,9 @@ root window (`_KDE_NET_WM_STEREO_CONTENT_SUPPORTED`): the runtime sets `_KDE_NET
+ = 3 on it, and the window manager keeps the window's place on screen while making the X window
+ twice as wide, possibly seconds later. A Vulkan X11 swapchain is always the window's current size,
+ so the target becomes two views wide only once the X window is; until then, and after a
+-withdrawal, the window is presented at its own size. Where no declaration is offered (another compositor, an app's
++withdrawal, the window is presented at its own size. The flag counts only in a rendering mode with
++two or more views on a 3D display state: a 2D mode (qwerty's V, an app's request) hands the DP one
++view, and the declaration is withdrawn. Where no declaration is offered (another compositor, an app's
+ own X11 window, a window manager without the announcement, `DXR_STEREO_DECLARE=0`) the target stays
+ the window's size and the runtime logs why in a `FULL_SBS:` line, so the two views show side by
+ side, flat. sim_display sets it for `SIM_DISPLAY_OUTPUT=sbs_full` (rendering mode 6, view scale
+diff --git a/src/xrt/compositor/vk_native/comp_vk_native_compositor.c b/src/xrt/compositor/vk_native/comp_vk_native_compositor.c
+index c53f2150a..1349aea7d 100644
+--- a/src/xrt/compositor/vk_native/comp_vk_native_compositor.c
++++ b/src/xrt/compositor/vk_native/comp_vk_native_compositor.c
+@@ -5936,8 +5936,14 @@ vk_full_sbs_refresh_locked(struct comp_vk_native_compositor *c)
+ 	if (c->display_processor != c->full_sbs.read_dp || idx != c->full_sbs.read_mode_index) {
+ 		c->full_sbs.read_dp = c->display_processor;
+ 		c->full_sbs.read_mode_index = idx;
++		// A 2D rendering mode (qwerty's V toggle, an app's request) hands the
++		// DP one view, which it passes through: no stereo pair, whatever the
++		// DP's own output setting is.
++		const struct xrt_rendering_mode *mode =
++		    (c->xdev != NULL && idx < c->xdev->rendering_mode_count) ? &c->xdev->rendering_modes[idx] : NULL;
++		const bool mode_is_stereo = mode == NULL || (mode->hardware_display_3d && mode->view_count >= 2);
+ 		c->full_sbs.dp_wants =
+-		    c->display_processor != NULL &&
++		    c->display_processor != NULL && mode_is_stereo &&
+ 		    xrt_display_processor_vk_outputs_full_sbs((struct xrt_display_processor_vk *)c->display_processor);
+ 
+ 		bool declare = false;

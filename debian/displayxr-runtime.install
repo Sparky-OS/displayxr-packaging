@@ -1,0 +1,11 @@
+usr/bin/displayxr-cli
+usr/bin/displayxr-service
+usr/lib/displayxr/bin/displayxr-cli
+usr/lib/displayxr/bin/displayxr-conversion-host
+usr/lib/displayxr/bin/displayxr-service
+usr/lib/displayxr/bin/displayxr-tracking-host
+usr/lib/displayxr/lib
+usr/lib/displayxr/plugins
+usr/lib/systemd/user
+usr/share/vulkan
+debian/openxr_displayxr.json etc/xdg/openxr/1

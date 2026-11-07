@@ -1,0 +1,3 @@
+etc/xdg/autostart/displayxr-gnome-extension-enable.desktop
+usr/lib/displayxr/bin/displayxr-gnome-extension-enable
+usr/share/gnome-shell/extensions/window-geometry@displayxr.org

@@ -1,0 +1,68 @@
+#!/usr/bin/make -f
+# DisplayXR packaging for Sparky Stereo OS, under the Boost Software License 1.0 like DisplayXR.
+# The build is DisplayXR's own shipped configuration (scripts/build_linux.sh --hybrid, Release), and the
+# payload is staged by DisplayXR's own scripts/package_deb_linux.sh --no-build, so the files, their places
+# and its checks (hybrid runtime, qwerty, Wayland present path, sonames) are upstream's; only the
+# Debian packaging around them is ours.
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+include /usr/share/dpkg/architecture.mk
+include /usr/share/dpkg/pkg-info.mk
+
+B := obj-$(DEB_HOST_GNU_TYPE)
+STAGE := debian/upstream-dist/displayxr-runtime_$(DEB_VERSION_UPSTREAM)_$(DEB_HOST_ARCH)
+# DisplayXR's release package of this version, carried as the "release" source component for its
+# dashboard (a self-contained .NET program; Debian has no .NET). Its SHA-256 is the digest the GitHub
+# release lists for the asset.
+RELEASE_DEB := release/displayxr-runtime_$(DEB_VERSION_UPSTREAM)_amd64.deb
+RELEASE_DEB_SHA256 := 7d216f4557d4eb54d5563a748c9f144218c79ab4a2ea48fd36fc5a216e7e8aaa
+DASHBOARD := debian/release-payload/usr/lib/displayxr/bin/displayxr-dashboard
+ifeq ($(DEB_HOST_ARCH),amd64)
+DASHBOARD_ENV := DXR_DASHBOARD_BIN=$(CURDIR)/$(DASHBOARD) DXR_REQUIRE_DASHBOARD=1
+endif
+
+%:
+	dh $@ --buildsystem=cmake+ninja --builddirectory=$(B)
+
+# The two FetchContent sources come from their source components (displayxr-mcp, displayxr-common), so
+# the build reads no network; the version is the release tag's, which the tree's git metadata would give.
+override_dh_auto_configure:
+	dh_auto_configure -- \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DFETCHCONTENT_FULLY_DISCONNECTED=ON \
+		-DFETCHCONTENT_SOURCE_DIR_DISPLAYXR_MCP=$(CURDIR)/displayxr-mcp \
+		-DFETCHCONTENT_SOURCE_DIR_DISPLAYXR_COMMON=$(CURDIR)/displayxr-common \
+		-DDXR_RUNTIME_VERSION_OVERRIDE=v$(DEB_VERSION_UPSTREAM) \
+		-DXRT_FEATURE_SERVICE=ON \
+		-DXRT_FEATURE_HYBRID_MODE=ON \
+		-DXRT_MODULE_CLI=ON \
+		-DXRT_BUILD_DRIVER_QWERTY=ON \
+		-DXRT_FEATURE_DEBUG_GUI=OFF \
+		-DXRT_FEATURE_WINDOW_PEEK=OFF \
+		-DXRT_HAVE_SDL2=OFF \
+		-DXRT_SIM_DISPLAY_FULL_SBS_ONLY=ON
+
+override_dh_auto_install:
+ifeq ($(DEB_HOST_ARCH),amd64)
+	echo "$(RELEASE_DEB_SHA256)  $(RELEASE_DEB)" | sha256sum -c -
+	mkdir -p debian/release-payload
+	dpkg-deb --fsys-tarfile $(RELEASE_DEB) | tar -x -C debian/release-payload ./usr/lib/displayxr/bin/displayxr-dashboard
+endif
+	env $(DASHBOARD_ENV) BUILD_DIR=$(CURDIR)/$(B) DIST_DIR=$(CURDIR)/debian/upstream-dist CMAKE_BUILD_TYPE=Release \
+		bash scripts/package_deb_linux.sh --no-build
+	mkdir -p debian/tmp
+	cp -a $(STAGE)/usr $(STAGE)/etc debian/tmp/
+	rm -rf debian/upstream-dist debian/release-payload
+
+# the dashboard's payload is appended to its ELF host, so stripping it would cut the program
+override_dh_strip:
+	dh_strip -Xdisplayxr-dashboard
+
+override_dh_dwz:
+	dh_dwz -Xdisplayxr-dashboard
+
+# the runtime library and the plug-ins are private to DisplayXR (/usr/lib/displayxr), loaded by path
+override_dh_makeshlibs:
+	dh_makeshlibs -X/usr/lib/displayxr
+
+override_dh_missing:
+	dh_missing --fail-missing

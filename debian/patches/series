@@ -1,0 +1,8 @@
+0001-dp-full-side-by-side-flag.patch
+0002-sim-display-sbs-full.patch
+0003-vk-native-declare-wayland.patch
+0004-cube-handle-test-eye-colors.patch
+0005-vk-native-declare-x11.patch
+0006-vk-native-withdraw-in-2d.patch
+0007-cube-hosted-legacy-test-eye-colors.patch
+0008-sim-display-full-sbs-only-build.patch

@@ -1,0 +1,116 @@
+Source: displayxr-runtime
+Section: libs
+Priority: optional
+Maintainer: Daniel Ramos (Capitain Jack) <Capitain_Jack@yahoo.com>
+Build-Depends:
+ debhelper-compat (= 13),
+ binutils,
+ cmake,
+ glslang-tools,
+ libcjson-dev,
+ libdbus-1-dev,
+ libeigen3-dev,
+ libudev-dev,
+ libvulkan-dev,
+ libwayland-bin,
+ libwayland-dev,
+ libx11-dev,
+ libx11-xcb-dev,
+ libxcb-randr0-dev,
+ libxcb-shape0-dev,
+ libxcb1-dev,
+ libxrandr-dev,
+ ninja-build,
+ pkgconf,
+ python3,
+Standards-Version: 4.7.2
+Homepage: https://sparkylinux.org
+Rules-Requires-Root: no
+
+Package: displayxr-runtime
+Architecture: amd64 arm64
+Depends:
+ ${misc:Depends},
+ ${shlibs:Depends},
+Recommends:
+ displayxr-dashboard [amd64],
+ displayxr-window-geometry-publisher-kwin | displayxr-window-geometry-publisher,
+ libopenxr-loader1,
+Provides:
+ libopenxr1,
+Description: OpenXR runtime for 3D displays (DisplayXR)
+ DisplayXR is an open OpenXR runtime purpose-built for 3D displays, so
+ that any OpenXR program runs on a desktop's screens. It is built by
+ Sparky Stereo OS from upstream DisplayXR
+ (https://github.com/DisplayXR/displayxr-runtime).
+ .
+ This package ships the runtime library, the displayxr-service compositor
+ that a systemd user socket starts on demand, the displayxr-cli tool, and
+ the vendor-neutral sim-display display processor used when no vendor
+ panel plug-in is installed. In this build sim-display has two outputs:
+ 2D, and the two views side by side, left first, each at the window's
+ resolution, declared to the desktop. Stereo KWin then shows them on every
+ stereo display it drives: 3D televisions and projectors, VR headsets,
+ glasses-free 3D displays and any monitor with red-cyan glasses, while a
+ plain 2D monitor shows the left view unchanged.
+ .
+ The runtime joins the openxr1-active-runtime alternatives group beside
+ other OpenXR runtimes such as Monado; README.Debian says how to choose
+ one for the whole system, for one user or for one program.
+
+Package: displayxr-dashboard
+Architecture: amd64
+Depends:
+ displayxr-runtime (= ${binary:Version}),
+ ${misc:Depends},
+ ${shlibs:Depends},
+Recommends:
+ libfontconfig1,
+ libice6,
+ libsm6,
+ libx11-6,
+ libxcursor1,
+ libxi6,
+ libxrandr2,
+Breaks:
+ displayxr-runtime (<< 2.66.3-1~),
+Replaces:
+ displayxr-runtime (<< 2.66.3-1~),
+Description: settings and status window for the DisplayXR runtime
+ The DisplayXR Dashboard shows the displays, windows, components and
+ performance settings of the DisplayXR OpenXR runtime, and changes them,
+ through displayxr-cli.
+ .
+ The dashboard is a self-contained .NET program. Debian has no .NET, so
+ this package carries the dashboard of DisplayXR's own release package
+ for this version, whose SHA-256 is checked against the digest DisplayXR
+ publishes for it; the source package keeps that release file, so what is
+ installed can be compared with it.
+
+Package: displayxr-window-geometry-publisher-gnome
+Architecture: all
+Depends:
+ ${misc:Depends},
+Enhances:
+ displayxr-runtime,
+ gnome-shell,
+Provides:
+ displayxr-window-geometry-publisher,
+ displayxr-window-geometry-publisher-gnome,
+Conflicts:
+ displayxr-window-geometry-publisher-gnome,
+Breaks:
+ displayxr-runtime (<< 2.66.3-1~),
+Replaces:
+ displayxr-runtime (<< 2.66.3-1~),
+ displayxr-window-geometry-publisher-gnome,
+Description: DisplayXR window-geometry service for GNOME Shell
+ A GNOME Shell extension (window-geometry@displayxr.org) that serves
+ org.displayxr.WindowGeometry on the session bus: the position and size
+ of each window and its monitor, so that the DisplayXR runtime or a
+ vendor's runtime can weave a glasses-free panel's picture where the
+ window is, and keep its own windows out of screen captures.
+ .
+ It is enabled once for each user at their next GNOME login, except for a
+ user who has turned it off. The KWin service of the same interface is
+ displayxr-window-geometry-publisher-kwin.

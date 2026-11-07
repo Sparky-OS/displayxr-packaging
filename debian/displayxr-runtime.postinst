@@ -1,0 +1,52 @@
+#!/bin/sh
+# DisplayXR packaging for Sparky Stereo OS: the runtime joins the alternatives group of
+# /etc/xdg/openxr/1/active_runtime.json that Debian's Monado uses (openxr1-active-runtime), so every
+# installed OpenXR runtime stays selectable, and a choice made with update-alternatives is kept.
+# The OpenXR loader specification (Linux Installed Runtimes Enumeration) asks tools that change the
+# active runtime to update only that link, never to move, copy or delete other files.
+set -e
+
+ACTIVE=/etc/xdg/openxr/1/active_runtime.json
+MANIFEST=/etc/xdg/openxr/1/openxr_displayxr.json
+# The priority decides the runtime in automatic mode when several are installed (Monado's is 50).
+PRIORITY=60
+
+# Run `systemctl --user ARGS` in every user manager running now (DisplayXR's own postinst does the same,
+# so a session already open gets the socket without logging out). Never fails.
+dxr_each_user_manager() {
+	command -v loginctl >/dev/null 2>&1 || return 0
+	for dxr_user in $(loginctl list-users --no-legend 2>/dev/null | awk '{print $2}'); do
+		dxr_uid="$(id -u "$dxr_user" 2>/dev/null)" || continue
+		[ -d "/run/user/$dxr_uid/systemd" ] || continue
+		timeout 10 systemctl --user --machine="$dxr_user@" "$@" >/dev/null 2>&1 || true
+	done
+}
+
+case "$1" in
+configure)
+	# DisplayXR's own package and installer write a plain file there; it is replaced by the link, which
+	# names the same runtime. A plain file naming another runtime is left as it is.
+	if [ -f "$ACTIVE" ] && [ ! -L "$ACTIVE" ]; then
+		if grep -q 'openxr_displayxr\.so' "$ACTIVE"; then
+			rm -f "$ACTIVE"
+		else
+			echo "displayxr-runtime: $ACTIVE is a file of its own, not a link, so the OpenXR runtime it names stays active." >&2
+			echo "displayxr-runtime: to let update-alternatives choose, move it away and run: update-alternatives --auto openxr1-active-runtime" >&2
+		fi
+	fi
+	update-alternatives --install "$ACTIVE" openxr1-active-runtime "$MANIFEST" "$PRIORITY"
+	;;
+esac
+
+#DEBHELPER#
+
+case "$1" in
+configure)
+	if command -v systemctl >/dev/null 2>&1; then
+		dxr_each_user_manager daemon-reload
+		dxr_each_user_manager start displayxr.socket
+	fi
+	;;
+esac
+
+exit 0

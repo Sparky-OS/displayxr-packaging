@@ -1,0 +1,82 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Daniel Campos Ramos <Capitain_Jack@yahoo.com>
+Date: Sat, 7 Nov 2026 01:56:53 -0300
+Subject: [PATCH 7/8] test(cube_hosted_legacy_vk_linux):
+ DXR_CUBE_TEST_EYE_COLORS, each view cleared to its eye's colour
+
+The same test hook as cube_handle_vk_linux, off by default: view 0 (the
+left eye) is cleared red and view 1 (the right eye) blue under the
+scene, so a capture of the runtime's own window tells which eye each
+view reached. Used to prove the X11 declaration on a stereo window
+manager, and that a swapped placement is caught.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Daniel Campos Ramos <Capitain_Jack@yahoo.com>
+
+Origin: vendor, https://github.com/danielcamposramos/displayxr-runtime/commit/ee0484d130eb9bac7eadc737d8c9a53895202970
+Forwarded: https://github.com/danielcamposramos/displayxr-runtime/tree/order34-sbs-declare (the pull request to DisplayXR follows the answer on https://github.com/DisplayXR/displayxr-runtime/issues/1928)
+Comment: Sparky Stereo OS ORDER 34; made on v2.65.0, applied to v2.66.3 without conflict.
+Last-Update: 2026-11-07
+---
+ .../cube_hosted_legacy_vk_linux/main.cpp      | 27 +++++++++++++++++++
+ 1 file changed, 27 insertions(+)
+
+diff --git a/test_apps/legacy/cube_hosted_legacy_vk_linux/main.cpp b/test_apps/legacy/cube_hosted_legacy_vk_linux/main.cpp
+index 603b9b95f..f967848fe 100644
+--- a/test_apps/legacy/cube_hosted_legacy_vk_linux/main.cpp
++++ b/test_apps/legacy/cube_hosted_legacy_vk_linux/main.cpp
+@@ -27,6 +27,7 @@
+ #include <cmath>
+ #include <csignal>
+ #include <cstdio>
++#include <cstdlib>
+ #include <cstring>
+ #include <string>
+ #include <chrono>
+@@ -1582,6 +1583,13 @@ static bool CreateSwapchainFramebuffers(VkRenderer& renderer,
+     return true;
+ }
+ 
++// TEST HOOK, off unless DXR_CUBE_TEST_EYE_COLORS=1 is set. Each view's tile is
++// cleared to its own colour before the scene is drawn: view 0 (the left eye)
++// red, view 1 (the right eye) blue. A capture of any output stage can then tell
++// which eye a view reached by its colour, e.g. the two halves a stereo
++// compositor shows of the runtime's window. Same hook as cube_handle_vk_linux.
++static bool g_testEyeColors = false;
++
+ static void RenderScene(
+     VkRenderer& renderer, uint32_t imageIndex,
+     const EyeRenderParams* eyes, int eyeCount)
+@@ -1630,6 +1638,17 @@ static void RenderScene(
+         vkCmdSetViewport(cmd, 0, 1, &viewport);
+         vkCmdSetScissor(cmd, 0, 1, &scissor);
+ 
++        if (g_testEyeColors && eye < 2) {
++            // TEST HOOK: view 0 red, view 1 blue (0 and 1 are the same in
++            // every encoding, so no sRGB conversion is needed).
++            VkClearAttachment clear = {};
++            clear.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
++            clear.colorAttachment = 0;
++            clear.clearValue.color = {{eye == 0 ? 1.0f : 0.0f, 0.0f, eye == 0 ? 0.0f : 1.0f, 1.0f}};
++            VkClearRect rect = {scissor, 0, 1};
++            vkCmdClearAttachments(cmd, 1, &clear, 1, &rect);
++        }
++
+         float vp[16];
+         mat4_multiply(vp, e.projMat, e.viewMat);
+ 
+@@ -2314,6 +2333,14 @@ int main() {
+ 
+     LOG_INFO("=== Sim Cube OpenXR (Vulkan) ===");
+ 
++    if (const char* cenv = getenv("DXR_CUBE_TEST_EYE_COLORS")) {
++        g_testEyeColors = cenv[0] == '1';
++        if (g_testEyeColors) {
++            LOG_WARN("DXR_CUBE_TEST_EYE_COLORS=1 — TEST HOOK armed; view 0 (left eye) is cleared red, "
++                     "view 1 (right eye) blue");
++        }
++    }
++
+     // Initialize OpenXR
+     AppXrSession xr = {};
+     if (!InitializeOpenXR(xr)) {

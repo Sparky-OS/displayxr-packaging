@@ -1,0 +1,379 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Daniel Campos Ramos <Capitain_Jack@yahoo.com>
+Date: Sat, 7 Nov 2026 00:33:53 -0300
+Subject: [PATCH 2/8] feat(sim_display): SIM_DISPLAY_OUTPUT=sbs_full, full side
+ by side for a stereo compositor
+
+A seventh rendering mode, "Full SBS": two views, each rendered at the window's
+full resolution (view scale 1.0 x 1.0, 2x1 tiles, Kooima over the whole
+display like Anaglyph), handed over side by side, left first, as they are.
+The existing "sbs" crops the centre of each view and scales it, and
+"squeezed" halves each view's width, so neither can be shown per eye at the
+resolution it was rendered at.
+
+The VK DP reports XRT_DP_SCANOUT_FLAG_FULL_SIDE_BY_SIDE for this mode and
+draws it with the squeezed-SBS kernel (each tile into its half of the
+target): with the target twice the window's width, which the runtime
+presents when it can declare the window, that is a 1:1 copy of each view.
+Every DP variant maps the mode to that pipeline through one shared helper
+before indexing its table; the D3D11, D3D12 and Metal logs say the output is
+flat there, since no declaration exists on those backends.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Daniel Campos Ramos <Capitain_Jack@yahoo.com>
+
+Origin: vendor, https://github.com/danielcamposramos/displayxr-runtime/commit/91454d96a8066d4b04644c8037cc75fb00008c01
+Forwarded: https://github.com/danielcamposramos/displayxr-runtime/tree/order34-sbs-declare (the pull request to DisplayXR follows the answer on https://github.com/DisplayXR/displayxr-runtime/issues/1928)
+Comment: Sparky Stereo OS ORDER 34; made on v2.65.0, applied to v2.66.3 without conflict.
+Last-Update: 2026-11-07
+---
+ docs/vendors/sim_display/README.md            | 14 ++++++-
+ .../drivers/sim_display/sim_display_device.c  | 40 +++++++++++++++----
+ .../sim_display/sim_display_interface.h       | 16 ++++++++
+ .../sim_display/sim_display_processor.c       | 20 ++++++++--
+ .../sim_display_processor_d3d11.cpp           |  2 +
+ .../sim_display_processor_d3d12.cpp           |  2 +
+ .../sim_display/sim_display_processor_gl.c    |  2 +
+ .../sim_display/sim_display_processor_metal.m |  2 +
+ .../sim_display/sim_display_zone_common.h     | 20 +++++++++-
+ 9 files changed, 103 insertions(+), 15 deletions(-)
+
+diff --git a/docs/vendors/sim_display/README.md b/docs/vendors/sim_display/README.md
+index 867c42453..9733d9c46 100644
+--- a/docs/vendors/sim_display/README.md
++++ b/docs/vendors/sim_display/README.md
+@@ -39,9 +39,21 @@ sim_display supports several output modes for visualizing stereo content on a 2D
+ - **Interlaced** — 1-pixel-period column interlace: view 0 on even panel
+   columns, view 1 on odd, both sampled at the same UV. The only
+   phase-sensitive mode — see the next section.
++- **Full SBS** (`SIM_DISPLAY_OUTPUT=sbs_full`, rendering mode 6) — for a stereo
++  desktop compositor. Both views are rendered at the window's full resolution
++  (view scale 1.0 x 1.0, 2x1 tiles) and handed over side by side, left first, as
++  they are. The DP reports `XRT_DP_SCANOUT_FLAG_FULL_SIDE_BY_SIDE`, so the Vulkan
++  compositor presents a buffer twice the window's width and declares the
++  window full side by side (`kde_stereo_content_v1`, value 3); the compositor
++  (Stereo KWin) shows each view to its eye and turns the pair into what each
++  output needs: a 3D television's HDMI 3D mode, anaglyph on a 2D monitor, the
++  left view alone on a plain 2D output. Without such a compositor nothing is
++  declared, the buffer stays the window's size and the window shows the two
++  views side by side, flat; the runtime's log says why (`FULL_SBS:` lines).
++  `DXR_STEREO_DECLARE=0` turns the declaration off for a comparison.
+ 
+ Mode is selected at driver init time
+-(`SIM_DISPLAY_OUTPUT=2d|anaglyph|sbs|squeezed|quad|blend|interlaced`). See
++(`SIM_DISPLAY_OUTPUT=2d|anaglyph|sbs|squeezed|quad|blend|interlaced|sbs_full`). See
+ `sim_display_processor.c` for the mode dispatch and `shaders/` for the
+ per-mode compositing kernels.
+ 
+diff --git a/src/xrt/drivers/sim_display/sim_display_device.c b/src/xrt/drivers/sim_display/sim_display_device.c
+index 7f3bf6aed..1681e4a8e 100644
+--- a/src/xrt/drivers/sim_display/sim_display_device.c
++++ b/src/xrt/drivers/sim_display/sim_display_device.c
+@@ -132,7 +132,8 @@ sim_display_set_output_mode(enum sim_display_output_mode mode)
+ 		        mode == SIM_DISPLAY_OUTPUT_ANAGLYPH       ? "Anaglyph" :
+ 		        mode == SIM_DISPLAY_OUTPUT_SQUEEZED_SBS   ? "Squeezed SBS" :
+ 		        mode == SIM_DISPLAY_OUTPUT_QUAD           ? "Quad" :
+-		        mode == SIM_DISPLAY_OUTPUT_INTERLACED     ? "Interlaced" : "Blend");
++		        mode == SIM_DISPLAY_OUTPUT_INTERLACED     ? "Interlaced" :
++		        mode == SIM_DISPLAY_OUTPUT_FULL_SBS       ? "Full SBS" : "Blend");
+ 	}
+ }
+ 
+@@ -544,6 +545,9 @@ sim_display_hmd_set_property(struct xrt_device *xdev,
+ 		case 5:
+ 			internal_mode = SIM_DISPLAY_OUTPUT_INTERLACED;
+ 			break;
++		case 6:
++			internal_mode = SIM_DISPLAY_OUTPUT_FULL_SBS;
++			break;
+ 		default:
+ 			return XRT_ERROR_NOT_IMPLEMENTED;
+ 		}
+@@ -573,6 +577,7 @@ sim_display_hmd_get_property(struct xrt_device *xdev,
+ 		case SIM_DISPLAY_OUTPUT_SQUEEZED_SBS: *out_value = 3; break;
+ 		case SIM_DISPLAY_OUTPUT_QUAD:         *out_value = 4; break;
+ 		case SIM_DISPLAY_OUTPUT_INTERLACED:   *out_value = 5; break;
++		case SIM_DISPLAY_OUTPUT_FULL_SBS:     *out_value = 6; break;
+ 		default:                              *out_value = 0; break;
+ 		}
+ 		return XRT_SUCCESS;
+@@ -621,10 +626,12 @@ sim_display_hmd_create(void)
+ 			else if (strcmp(mode_str, "interlaced") == 0 || strcmp(mode_str, "interlace") == 0)
+ 				// #817: the one phase-sensitive mode — see the enum doc.
+ 				sim_display_set_output_mode(SIM_DISPLAY_OUTPUT_INTERLACED);
++			else if (strcmp(mode_str, "sbs_full") == 0 || strcmp(mode_str, "full_sbs") == 0)
++				sim_display_set_output_mode(SIM_DISPLAY_OUTPUT_FULL_SBS);
+ 			else
+ 				U_LOG_W("sim_display: unknown SIM_DISPLAY_OUTPUT '%s' (want "
+-				        "2d|anaglyph|sbs|squeezed|quad|blend|interlaced) — keeping the anaglyph "
+-				        "default",
++				        "2d|anaglyph|sbs|squeezed|quad|blend|interlaced|sbs_full) — keeping the "
++				        "anaglyph default",
+ 				        mode_str);
+ 		}
+ 	}
+@@ -798,10 +805,10 @@ sim_display_hmd_create(void)
+ 	snprintf(hmd->base.str, XRT_DEVICE_NAME_LEN, "Sim 3D Display");
+ 	snprintf(hmd->base.serial, XRT_DEVICE_NAME_LEN, "sim_display_0");
+ 
+-	// Rendering modes: sim_display supports 6 modes (2D + 3 stereo + quad + interlaced).
++	// Rendering modes: sim_display supports 7 modes (2D + 3 stereo + quad + interlaced + full SBS).
+ 	// Order: 0=2D, 1=Anaglyph (default 3D), 2=Cropped SBS, 3=Squeezed SBS, 4=Quad,
+-	//        5=Interlaced (#817 phase-sensitive weave proxy)
+-	hmd->base.rendering_mode_count = 6;
++	//        5=Interlaced (#817 phase-sensitive weave proxy), 6=Full SBS (for a stereo compositor)
++	hmd->base.rendering_mode_count = 7;
+ 
+ 	// Mode 0: 2D (mono, full resolution, 1×1 tile)
+ 	hmd->base.rendering_modes[0].mode_index = 0;
+@@ -866,6 +873,21 @@ sim_display_hmd_create(void)
+ 	hmd->base.rendering_modes[5].tile_columns = 2;
+ 	hmd->base.rendering_modes[5].tile_rows = 1;
+ 
++	// Full SBS for a stereo desktop compositor: two views, each at the full
++	// window size (scale 1.0 x 1.0), 2x1 tiles handed over side by side as
++	// they are. The DP flags it XRT_DP_SCANOUT_FLAG_FULL_SIDE_BY_SIDE; the
++	// runtime presents a target twice the window's width and declares it.
++	// Position-preserving geometry, like Anaglyph: each view sees the whole
++	// window (the Kooima screen is the full display, not half of it).
++	hmd->base.rendering_modes[6].mode_index = 6;
++	snprintf(hmd->base.rendering_modes[6].mode_name, XRT_DEVICE_NAME_LEN, "Full SBS");
++	hmd->base.rendering_modes[6].view_count = 2;
++	hmd->base.rendering_modes[6].view_scale_x = 1.0f;
++	hmd->base.rendering_modes[6].view_scale_y = 1.0f;
++	hmd->base.rendering_modes[6].hardware_display_3d = true;
++	hmd->base.rendering_modes[6].tile_columns = 2;
++	hmd->base.rendering_modes[6].tile_rows = 1;
++
+ 	// Per-mode tracking capability (#441): sim_display has no real eye
+ 	// tracker, so every mode stays untracked (mode_flags/reserved are
+ 	// zero from the calloc'd device). Under the dev-only
+@@ -901,6 +923,7 @@ sim_display_hmd_create(void)
+ 		case SIM_DISPLAY_OUTPUT_SQUEEZED_SBS: default_mode = 3; break;
+ 		case SIM_DISPLAY_OUTPUT_QUAD:         default_mode = 4; break;
+ 		case SIM_DISPLAY_OUTPUT_INTERLACED:   default_mode = 5; break;
++		case SIM_DISPLAY_OUTPUT_FULL_SBS:     default_mode = 6; break;
+ 		default:                              default_mode = 0; break;
+ 		}
+ 
+@@ -910,10 +933,11 @@ sim_display_hmd_create(void)
+ 		// this mode against every later request (plug-in-wide, any app).
+ 		int32_t forced = (int32_t)debug_get_num_option_sim_display_force_mode();
+ 		if (forced >= 0 && (uint32_t)forced < hmd->base.rendering_mode_count) {
+-			static const enum sim_display_output_mode idx_to_internal[6] = {
++			static const enum sim_display_output_mode idx_to_internal[7] = {
+ 			    SIM_DISPLAY_OUTPUT_PASSTHROUGH, SIM_DISPLAY_OUTPUT_ANAGLYPH,
+ 			    SIM_DISPLAY_OUTPUT_SBS,         SIM_DISPLAY_OUTPUT_SQUEEZED_SBS,
+-			    SIM_DISPLAY_OUTPUT_QUAD,        SIM_DISPLAY_OUTPUT_INTERLACED};
++			    SIM_DISPLAY_OUTPUT_QUAD,        SIM_DISPLAY_OUTPUT_INTERLACED,
++			    SIM_DISPLAY_OUTPUT_FULL_SBS};
+ 			default_mode = (uint32_t)forced;
+ 			sim_display_set_output_mode(idx_to_internal[default_mode]);
+ 			U_LOG_W("sim_display: SIM_DISPLAY_FORCE_MODE=%d — pinning active mode "
+diff --git a/src/xrt/drivers/sim_display/sim_display_interface.h b/src/xrt/drivers/sim_display/sim_display_interface.h
+index e1eb2a368..ea0a135fa 100644
+--- a/src/xrt/drivers/sim_display/sim_display_interface.h
++++ b/src/xrt/drivers/sim_display/sim_display_interface.h
+@@ -41,6 +41,8 @@ struct xrt_eye_positions;
+  * - "anaglyph" (default): red-cyan anaglyph stereoscopy
+  * - "blend": 50/50 alpha blend of both views
+  * - "interlaced": 1-pixel column interlace (phase-sensitive weave proxy, #817)
++ * - "sbs_full": both views side by side, each at full window resolution, for a
++ *   stereo desktop compositor (declared to it as full side by side)
+  *
+  * Always available as fallback. Use FORCE_SIM_DISPLAY=1 to override vendor drivers.
+  */
+@@ -80,6 +82,20 @@ enum sim_display_output_mode
+ 	 * show that geometry is wrong but never that a vendor weave is right.
+ 	 */
+ 	SIM_DISPLAY_OUTPUT_INTERLACED = 6,
++	/*!
++	 * Full side by side for a stereo desktop compositor: the two views, each
++	 * rendered at the window's full resolution (view scale 1.0 x 1.0), placed
++	 * side by side, left first, as they are — no crop, no squeeze. The DP
++	 * reports @ref XRT_DP_SCANOUT_FLAG_FULL_SIDE_BY_SIDE for this mode, so the
++	 * runtime presents a target twice the window's width and declares the
++	 * window as holding both views; the compositor shows each view to its eye
++	 * and resizes it once. Without a declaring compositor the target stays the
++	 * window's size and the two views show side by side, flat.
++	 *
++	 * Drawn with the squeezed-SBS pipeline (each tile into its half of the
++	 * target): with the target twice the window's width that is a 1:1 copy.
++	 */
++	SIM_DISPLAY_OUTPUT_FULL_SBS = 7,
+ };
+ 
+ /*!
+diff --git a/src/xrt/drivers/sim_display/sim_display_processor.c b/src/xrt/drivers/sim_display/sim_display_processor.c
+index 7254d4d82..67fd98544 100644
+--- a/src/xrt/drivers/sim_display/sim_display_processor.c
++++ b/src/xrt/drivers/sim_display/sim_display_processor.c
+@@ -349,6 +349,7 @@ sim_dp_process_atlas(struct xrt_display_processor *xdp,
+ 	if (tile_columns * tile_rows <= 1) {
+ 		mode = SIM_DISPLAY_OUTPUT_PASSTHROUGH;
+ 	}
++	mode = sim_display_pipeline_mode(mode);
+ 	VkPipeline active_pipeline = sdp->pipelines[mode];
+ 	if (sim_zone_substitute_position_preserving(mode, sdp->zone_active, "VK")) {
+ 		active_pipeline = sdp->pipelines[SIM_DISPLAY_OUTPUT_ANAGLYPH];
+@@ -883,6 +884,9 @@ sim_dp_set_present_origin(struct xrt_display_processor_vk *xdp, int32_t panel_x,
+  * default) and, for multi-screen M2's per-segment 1:1 gate, whether the
+  * output survives a display-server resample. Every sim output does except
+  * INTERLACED, whose 1-pixel period is exactly what a resample destroys.
++ * FULL_SBS also says its output is full side by side for a stereo
++ * compositor (XRT_DP_SCANOUT_FLAG_FULL_SIDE_BY_SIDE), which the runtime
++ * presents twice the window's width and declares.
+  * Read from the CURRENT output mode on every call (the 1/2/3 keys can change
+  * it), so the runtime re-queries when it re-evaluates a segment. Logs on
+  * change only.
+@@ -895,8 +899,12 @@ sim_dp_get_scanout_caps(struct xrt_display_processor_vk *xdp, struct xrt_dp_scan
+ 		return false;
+ 	}
+ 	const enum xrt_dp_weave_scope scope = sim_scanout_scope_from_env();
+-	const bool interlaced = sim_display_get_output_mode() == SIM_DISPLAY_OUTPUT_INTERLACED;
+-	const uint32_t flags = interlaced ? 0u : XRT_DP_SCANOUT_FLAG_TOLERATES_RESAMPLE;
++	const enum sim_display_output_mode mode = sim_display_get_output_mode();
++	const bool interlaced = mode == SIM_DISPLAY_OUTPUT_INTERLACED;
++	uint32_t flags = interlaced ? 0u : XRT_DP_SCANOUT_FLAG_TOLERATES_RESAMPLE;
++	if (mode == SIM_DISPLAY_OUTPUT_FULL_SBS) {
++		flags |= XRT_DP_SCANOUT_FLAG_FULL_SIDE_BY_SIDE;
++	}
+ 	out_caps->weave_scope = (uint32_t)scope;
+ 	out_caps->flags = flags;
+ 	for (size_t i = 0; i < sizeof(out_caps->reserved) / sizeof(out_caps->reserved[0]); i++) {
+@@ -905,9 +913,12 @@ sim_dp_get_scanout_caps(struct xrt_display_processor_vk *xdp, struct xrt_dp_scan
+ 	if (!sdp->caps_reported || sdp->caps_last_flags != flags) {
+ 		sdp->caps_reported = true;
+ 		sdp->caps_last_flags = flags;
+-		U_LOG_I("sim_display VK DP %p: weave scope '%s', %s", (void *)sdp, xrt_dp_weave_scope_name(scope),
++		U_LOG_I("sim_display VK DP %p: weave scope '%s', %s%s", (void *)sdp, xrt_dp_weave_scope_name(scope),
+ 		        interlaced ? "INTERLACED needs 1:1 pixels (a resample destroys the pattern)"
+-		                   : "output survives a display-server resample");
++		                   : "output survives a display-server resample",
++		        (flags & XRT_DP_SCANOUT_FLAG_FULL_SIDE_BY_SIDE) != 0
++		            ? ", output is full side by side for a stereo compositor"
++		            : "");
+ 	}
+ 	return true;
+ }
+@@ -1388,6 +1399,7 @@ sim_display_processor_create_impl(enum sim_display_output_mode mode,
+ 	        mode == SIM_DISPLAY_OUTPUT_SQUEEZED_SBS   ? "Squeezed SBS" :
+ 	        mode == SIM_DISPLAY_OUTPUT_QUAD            ? "Quad" :
+ 	        mode == SIM_DISPLAY_OUTPUT_INTERLACED      ? "Interlaced" :
++	        mode == SIM_DISPLAY_OUTPUT_FULL_SBS        ? "Full SBS" :
+ 	        mode == SIM_DISPLAY_OUTPUT_PASSTHROUGH     ? "Passthrough" : "Blend");
+ 
+ 	if (sdp->screen_bound) {
+diff --git a/src/xrt/drivers/sim_display/sim_display_processor_d3d11.cpp b/src/xrt/drivers/sim_display/sim_display_processor_d3d11.cpp
+index eab7689a5..083b13d12 100644
+--- a/src/xrt/drivers/sim_display/sim_display_processor_d3d11.cpp
++++ b/src/xrt/drivers/sim_display/sim_display_processor_d3d11.cpp
+@@ -348,6 +348,7 @@ sim_dp_d3d11_process_atlas(struct xrt_display_processor_d3d11 *xdp,
+ 	if (tile_columns * tile_rows <= 1) {
+ 		mode = SIM_DISPLAY_OUTPUT_PASSTHROUGH;
+ 	}
++	mode = sim_display_pipeline_mode(mode);
+ 	// #817: no phase-sensitive interlace on this backend yet — see the helper.
+ 	if (sim_interlaced_fallback_to_anaglyph(mode, "D3D11")) {
+ 		mode = SIM_DISPLAY_OUTPUT_ANAGLYPH;
+@@ -1122,6 +1123,7 @@ sim_display_processor_d3d11_create_bound(enum sim_display_output_mode mode,
+ 	        mode == SIM_DISPLAY_OUTPUT_SQUEEZED_SBS   ? "Squeezed SBS" :
+ 	        mode == SIM_DISPLAY_OUTPUT_QUAD           ? "Quad" :
+ 	        mode == SIM_DISPLAY_OUTPUT_INTERLACED     ? "Interlaced (anaglyph fallback)" :
++	        mode == SIM_DISPLAY_OUTPUT_FULL_SBS       ? "Full SBS (flat: no stereo declaration on this backend)" :
+ 	        mode == SIM_DISPLAY_OUTPUT_PASSTHROUGH    ? "Passthrough" : "Blend");
+ 
+ 	*out_xdp = &sdp->base;
+diff --git a/src/xrt/drivers/sim_display/sim_display_processor_d3d12.cpp b/src/xrt/drivers/sim_display/sim_display_processor_d3d12.cpp
+index b4a15b870..27a2d1f72 100644
+--- a/src/xrt/drivers/sim_display/sim_display_processor_d3d12.cpp
++++ b/src/xrt/drivers/sim_display/sim_display_processor_d3d12.cpp
+@@ -285,6 +285,7 @@ sim_dp_d3d12_process_atlas(struct xrt_display_processor_d3d12 *xdp,
+ 	if (tile_columns * tile_rows <= 1) {
+ 		mode = SIM_DISPLAY_OUTPUT_PASSTHROUGH;
+ 	}
++	mode = sim_display_pipeline_mode(mode);
+ 	// #817: no phase-sensitive interlace on this backend yet — see the helper.
+ 	if (sim_interlaced_fallback_to_anaglyph(mode, "D3D12")) {
+ 		mode = SIM_DISPLAY_OUTPUT_ANAGLYPH;
+@@ -860,6 +861,7 @@ sim_display_processor_d3d12_create_bound(enum sim_display_output_mode mode,
+ 	        mode == SIM_DISPLAY_OUTPUT_SQUEEZED_SBS   ? "Squeezed SBS" :
+ 	        mode == SIM_DISPLAY_OUTPUT_QUAD           ? "Quad" :
+ 	        mode == SIM_DISPLAY_OUTPUT_INTERLACED     ? "Interlaced (anaglyph fallback)" :
++	        mode == SIM_DISPLAY_OUTPUT_FULL_SBS       ? "Full SBS (flat: no stereo declaration on this backend)" :
+ 	        mode == SIM_DISPLAY_OUTPUT_PASSTHROUGH    ? "Passthrough" : "Blend");
+ 
+ 	*out_xdp = &sdp->base;
+diff --git a/src/xrt/drivers/sim_display/sim_display_processor_gl.c b/src/xrt/drivers/sim_display/sim_display_processor_gl.c
+index d117c1c35..fd19c9375 100644
+--- a/src/xrt/drivers/sim_display/sim_display_processor_gl.c
++++ b/src/xrt/drivers/sim_display/sim_display_processor_gl.c
+@@ -345,6 +345,7 @@ sim_dp_gl_process_atlas(struct xrt_display_processor_gl *xdp,
+ 	if (tile_columns * tile_rows <= 1) {
+ 		mode = SIM_DISPLAY_OUTPUT_PASSTHROUGH;
+ 	}
++	mode = sim_display_pipeline_mode(mode);
+ 	GLuint active_program = sdp->programs[mode];
+ 	if (sim_zone_substitute_position_preserving(mode, sdp->zone_active, "GL")) {
+ 		active_program = sdp->programs[SIM_DISPLAY_OUTPUT_ANAGLYPH];
+@@ -839,6 +840,7 @@ sim_display_processor_gl_create_bound(enum sim_display_output_mode mode,
+ 	        mode == SIM_DISPLAY_OUTPUT_SQUEEZED_SBS   ? "Squeezed SBS" :
+ 	        mode == SIM_DISPLAY_OUTPUT_QUAD           ? "Quad" :
+ 	        mode == SIM_DISPLAY_OUTPUT_INTERLACED     ? "Interlaced" :
++	        mode == SIM_DISPLAY_OUTPUT_FULL_SBS       ? "Full SBS" :
+ 	        mode == SIM_DISPLAY_OUTPUT_PASSTHROUGH    ? "Passthrough" : "Blend");
+ 
+ 	*out_xdp = &sdp->base;
+diff --git a/src/xrt/drivers/sim_display/sim_display_processor_metal.m b/src/xrt/drivers/sim_display/sim_display_processor_metal.m
+index a499f6283..a4310deab 100644
+--- a/src/xrt/drivers/sim_display/sim_display_processor_metal.m
++++ b/src/xrt/drivers/sim_display/sim_display_processor_metal.m
+@@ -279,6 +279,7 @@ sim_dp_metal_process_atlas(struct xrt_display_processor_metal *xdp,
+ 	if (tile_columns * tile_rows <= 1) {
+ 		mode = SIM_DISPLAY_OUTPUT_PASSTHROUGH;
+ 	}
++	mode = sim_display_pipeline_mode(mode);
+ 	// #817: no phase-sensitive interlace on this backend yet — see the helper.
+ 	if (sim_interlaced_fallback_to_anaglyph(mode, "Metal")) {
+ 		mode = SIM_DISPLAY_OUTPUT_ANAGLYPH;
+@@ -813,6 +814,7 @@ sim_display_processor_metal_create_bound(enum sim_display_output_mode mode,
+ 	        mode == SIM_DISPLAY_OUTPUT_SQUEEZED_SBS   ? "Squeezed SBS" :
+ 	        mode == SIM_DISPLAY_OUTPUT_QUAD            ? "Quad" :
+ 	        mode == SIM_DISPLAY_OUTPUT_INTERLACED      ? "Interlaced (anaglyph fallback)" :
++	        mode == SIM_DISPLAY_OUTPUT_FULL_SBS        ? "Full SBS (flat: no stereo declaration on this backend)" :
+ 	        mode == SIM_DISPLAY_OUTPUT_PASSTHROUGH     ? "Passthrough" : "Blend");
+ 
+ 	if (sdp->screen_bound) {
+diff --git a/src/xrt/drivers/sim_display/sim_display_zone_common.h b/src/xrt/drivers/sim_display/sim_display_zone_common.h
+index 05aaa2a17..0ce053e92 100644
+--- a/src/xrt/drivers/sim_display/sim_display_zone_common.h
++++ b/src/xrt/drivers/sim_display/sim_display_zone_common.h
+@@ -232,10 +232,26 @@ sim_zone_downsample_map(const uint8_t *pixels,
+ 		}                                                                                                      \
+ 		return (*out_pixel_width > 0 && *out_pixel_height > 0);                                                \
+ 	}
+-//! #842: per-variant pipeline/shader table size — one entry per user-selectable
+-//! output mode (enum sim_display_output_mode indexes the table directly).
++//! #842: per-variant pipeline/shader table size — one entry per drawn output
++//! mode (enum sim_display_output_mode indexes the table directly, after
++//! @ref sim_display_pipeline_mode).
+ #define SIM_DP_PIPELINE_COUNT 7
+ 
++/*!
++ * The pipeline an output mode draws with, shared by all five variants.
++ * SIM_DISPLAY_OUTPUT_FULL_SBS has no table entry of its own: it places each
++ * tile, as it is, in its half of the target — the squeezed-SBS kernel. The
++ * difference is the target the runtime hands it (twice the window's width when
++ * it declares the window to a stereo compositor), which turns that kernel into
++ * a 1:1 copy of each view. Every variant maps the mode through here BEFORE it
++ * indexes its table.
++ */
++static inline enum sim_display_output_mode
++sim_display_pipeline_mode(enum sim_display_output_mode mode)
++{
++	return mode == SIM_DISPLAY_OUTPUT_FULL_SBS ? SIM_DISPLAY_OUTPUT_SQUEEZED_SBS : mode;
++}
++
+ /*!
+  * #842 — position-preserving substitution rule, shared by all five variants.
+  *

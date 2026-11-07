@@ -1,0 +1,7 @@
+{
+    "file_format_version": "1.0.0",
+    "runtime": {
+        "name": "DisplayXR",
+        "library_path": "/usr/lib/displayxr/lib/openxr_displayxr.so"
+    }
+}

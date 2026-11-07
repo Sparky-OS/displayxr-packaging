@@ -1,0 +1,438 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Daniel Campos Ramos <Capitain_Jack@yahoo.com>
+Date: Sat, 7 Nov 2026 09:17:01 -0300
+Subject: [PATCH 8/8] feat(sim_display): XRT_SIM_DISPLAY_FULL_SBS_ONLY, a build
+ with 2D and full side by side only
+
+For a distribution whose desktop compositor makes every display format from
+one full side-by-side picture (Sparky Stereo OS with Stereo KWin): with the
+option ON, sim_display offers two rendering modes, 2D and Full SBS (mode 1,
+the default), and the anaglyph, cropped and squeezed SBS, quad, blend and
+interlaced outputs are not built (their shaders are not compiled and their
+pipelines are not created). SIM_DISPLAY_OUTPUT accepts sbs_full and 2d and
+logs why it keeps sbs_full for any other value. With a zone mask active,
+full side by side is drawn as it is and the log says so, since there is no
+anaglyph to substitute. The option is OFF by default; nothing changes for
+other builds apart from creating the pipelines from the shaders that were
+built (all of them when OFF).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+Origin: vendor, Sparky Stereo OS ORDER 58
+Forwarded: not-needed
+Comment: The edition builds sim_display with XRT_SIM_DISPLAY_FULL_SBS_ONLY=ON: its one stereo output
+ is full side by side, declared to Stereo KWin, whose outputs make every display format.
+ DisplayXR's own builds keep every output; the option is OFF by default.
+Last-Update: 2026-11-07
+---
+ src/xrt/drivers/CMakeLists.txt                | 34 ++++++++++---
+ .../drivers/sim_display/sim_display_device.c  | 49 +++++++++++++++++++
+ .../sim_display/sim_display_processor.c       | 46 ++++++++++++++---
+ .../sim_display/sim_display_processor_gl.c    | 10 ++++
+ .../sim_display/sim_display_settings.c        |  9 ++++
+ .../sim_display/sim_display_zone_common.h     | 12 +++++
+ 6 files changed, 146 insertions(+), 14 deletions(-)
+
+diff --git a/src/xrt/drivers/CMakeLists.txt b/src/xrt/drivers/CMakeLists.txt
+index d42a49b7c..ee2daea2b 100644
+--- a/src/xrt/drivers/CMakeLists.txt
++++ b/src/xrt/drivers/CMakeLists.txt
+@@ -126,6 +126,26 @@ set(SIM_DISPLAY_SOURCES
+ 	${SIM_WEBCAM_CORE_SOURCES}
+ 	)
+ 
++# A build for a stereo desktop compositor: sim_display offers 2D and its full
++# side-by-side output only (SIM_DISPLAY_OUTPUT=sbs_full, declared to the
++# compositor), and the compositor's outputs make every display format from that
++# one picture. The other outputs (anaglyph, cropped and squeezed SBS, quad,
++# blend, interlaced) are not built.
++option(XRT_SIM_DISPLAY_FULL_SBS_ONLY "Build sim_display with its 2D and full side-by-side outputs only" OFF)
++if(XRT_SIM_DISPLAY_FULL_SBS_ONLY)
++	set(SIM_DISPLAY_FRAG_SHADERS sim_display/shaders/squeezed_sbs.frag sim_display/shaders/passthrough.frag)
++else()
++	set(SIM_DISPLAY_FRAG_SHADERS
++		sim_display/shaders/anaglyph.frag
++		sim_display/shaders/blend.frag
++		sim_display/shaders/sbs.frag
++		sim_display/shaders/squeezed_sbs.frag
++		sim_display/shaders/quad.frag
++		sim_display/shaders/passthrough.frag
++		sim_display/shaders/interlaced.frag
++		)
++endif()
++
+ # Vulkan display processor (anaglyph/blend shaders)
+ if(XRT_HAVE_VULKAN)
+ 	spirv_shaders(
+@@ -134,13 +154,7 @@ if(XRT_HAVE_VULKAN)
+ 		1.0
+ 		SOURCES
+ 		sim_display/shaders/fullscreen.vert
+-		sim_display/shaders/anaglyph.frag
+-		sim_display/shaders/blend.frag
+-		sim_display/shaders/sbs.frag
+-		sim_display/shaders/squeezed_sbs.frag
+-		sim_display/shaders/quad.frag
+-		sim_display/shaders/passthrough.frag
+-		sim_display/shaders/interlaced.frag
++		${SIM_DISPLAY_FRAG_SHADERS}
+ 		)
+ 	list(APPEND SIM_DISPLAY_SOURCES
+ 		${SIM_DISPLAY_SHADER_HEADERS}
+@@ -191,6 +205,9 @@ add_library(drv_sim_display STATIC ${SIM_DISPLAY_SOURCES})
+ # NOT ANDROID AND XRT_HAVE_OPENGL above) — keep this link in lockstep so a
+ # headless Linux build without GL doesn't drag in GL/GLES aux.
+ target_link_libraries(drv_sim_display PRIVATE xrt-interfaces aux_util aux_os aux_os_uvc PUBLIC drv_includes)
++if(XRT_SIM_DISPLAY_FULL_SBS_ONLY)
++	target_compile_definitions(drv_sim_display PRIVATE SIM_DISPLAY_FULL_SBS_ONLY)
++endif()
+ if(NOT ANDROID AND XRT_HAVE_OPENGL)
+ 	target_link_libraries(drv_sim_display PRIVATE aux_ogl)
+ endif()
+@@ -258,6 +275,9 @@ list(APPEND ENABLED_DRIVERS drv_sim_display)
+ # resolves because it's evaluated at generate time, when the target exists).
+ if(XRT_FEATURE_OPENXR)
+ add_library(drv_sim_display_plugin SHARED ${SIM_DISPLAY_SOURCES} sim_display/sim_display_plugin.c)
++if(XRT_SIM_DISPLAY_FULL_SBS_ONLY)
++	target_compile_definitions(drv_sim_display_plugin PRIVATE SIM_DISPLAY_FULL_SBS_ONLY)
++endif()
+ if(ANDROID OR XRT_HAVE_LINUX)
+ 	# Self-contained plug-in model: a .so that STATIC-links aux and does NOT
+ 	# link the runtime .so. The ADR-019 Option-C aux-export boundary (the else
+diff --git a/src/xrt/drivers/sim_display/sim_display_device.c b/src/xrt/drivers/sim_display/sim_display_device.c
+index 1681e4a8e..01319fc1a 100644
+--- a/src/xrt/drivers/sim_display/sim_display_device.c
++++ b/src/xrt/drivers/sim_display/sim_display_device.c
+@@ -58,7 +58,14 @@
+ //! rearrangement), so it composites correctly with display-zones and reads as
+ //! real depth on a flat panel. The rearranging modes (SBS / Squeezed / Quad)
+ //! are deliberately opt-in — they are view-inspection tools, not a sane default.
++//! A build for a stereo desktop compositor (XRT_SIM_DISPLAY_FULL_SBS_ONLY) has
++//! 2D and full side by side only, and full side by side is its default: the
++//! compositor's outputs make every display format from it.
++#ifdef SIM_DISPLAY_FULL_SBS_ONLY
++static xrt_atomic_s32_t g_sim_display_output_mode = SIM_DISPLAY_OUTPUT_FULL_SBS;
++#else
+ static xrt_atomic_s32_t g_sim_display_output_mode = SIM_DISPLAY_OUTPUT_ANAGLYPH;
++#endif
+ static xrt_atomic_s32_t g_sim_display_view_count = 1;
+ 
+ //! Panel metrics published for the DP variants (#856). Written once in
+@@ -528,6 +535,11 @@ sim_display_hmd_set_property(struct xrt_device *xdev,
+ 			return XRT_SUCCESS;
+ 		}
+ 
++#ifdef SIM_DISPLAY_FULL_SBS_ONLY
++		// Mode 1 is the one stereo mode of this build: full side by side.
++		sim_display_set_output_mode(SIM_DISPLAY_OUTPUT_FULL_SBS);
++		return XRT_SUCCESS;
++#else
+ 		enum sim_display_output_mode internal_mode;
+ 		switch (value) {
+ 		case 1:
+@@ -553,6 +565,7 @@ sim_display_hmd_set_property(struct xrt_device *xdev,
+ 		}
+ 		sim_display_set_output_mode(internal_mode);
+ 		return XRT_SUCCESS;
++#endif
+ 	}
+ 	if (property == XRT_DEVICE_PROPERTY_EXT_APP_MODE) {
+ 		sim_display_hmd_set_ext_app_mode(xdev, value != 0);
+@@ -569,6 +582,9 @@ sim_display_hmd_get_property(struct xrt_device *xdev,
+ 	if (property == XRT_DEVICE_PROPERTY_OUTPUT_MODE) {
+ 		// Return unified mode index: internal SBS(0)→2, Anaglyph(1)→1, Blend(2)→3
+ 		enum sim_display_output_mode internal = sim_display_get_output_mode();
++#ifdef SIM_DISPLAY_FULL_SBS_ONLY
++		*out_value = (internal == SIM_DISPLAY_OUTPUT_FULL_SBS) ? 1 : 0;
++#else
+ 		switch (internal) {
+ 		case SIM_DISPLAY_OUTPUT_PASSTHROUGH:   *out_value = 0; break;
+ 		case SIM_DISPLAY_OUTPUT_SBS:          *out_value = 2; break;
+@@ -580,6 +596,7 @@ sim_display_hmd_get_property(struct xrt_device *xdev,
+ 		case SIM_DISPLAY_OUTPUT_FULL_SBS:     *out_value = 6; break;
+ 		default:                              *out_value = 0; break;
+ 		}
++#endif
+ 		return XRT_SUCCESS;
+ 	}
+ 	if (property == XRT_DEVICE_PROPERTY_SBS_MODE) {
+@@ -611,6 +628,17 @@ sim_display_hmd_create(void)
+ 		char mode_buf[32];
+ 		const char *mode_str = sim_display_setting("OUTPUT", mode_buf, sizeof(mode_buf)) ? mode_buf : NULL;
+ 		if (mode_str) {
++#ifdef SIM_DISPLAY_FULL_SBS_ONLY
++			if (strcmp(mode_str, "sbs_full") == 0 || strcmp(mode_str, "full_sbs") == 0)
++				sim_display_set_output_mode(SIM_DISPLAY_OUTPUT_FULL_SBS);
++			else if (strcmp(mode_str, "2d") == 0 || strcmp(mode_str, "passthrough") == 0)
++				sim_display_set_output_mode(SIM_DISPLAY_OUTPUT_PASSTHROUGH);
++			else
++				U_LOG_W("sim_display: SIM_DISPLAY_OUTPUT '%s' is not built here: this build has 2d and "
++				        "sbs_full only, and the desktop compositor makes every display format from full "
++				        "side by side — keeping sbs_full",
++				        mode_str);
++#else
+ 			if (strcmp(mode_str, "sbs") == 0)
+ 				sim_display_set_output_mode(SIM_DISPLAY_OUTPUT_SBS);
+ 			else if (strcmp(mode_str, "anaglyph") == 0)
+@@ -633,6 +661,7 @@ sim_display_hmd_create(void)
+ 				        "2d|anaglyph|sbs|squeezed|quad|blend|interlaced|sbs_full) — keeping the "
+ 				        "anaglyph default",
+ 				        mode_str);
++#endif
+ 		}
+ 	}
+ 
+@@ -888,6 +917,17 @@ sim_display_hmd_create(void)
+ 	hmd->base.rendering_modes[6].tile_columns = 2;
+ 	hmd->base.rendering_modes[6].tile_rows = 1;
+ 
++#ifdef SIM_DISPLAY_FULL_SBS_ONLY
++	// One stereo output in this build: Full SBS becomes mode 1, after 2D, and
++	// the other modes are not offered (their pipelines are not built).
++	hmd->base.rendering_modes[1] = hmd->base.rendering_modes[6];
++	hmd->base.rendering_modes[1].mode_index = 1;
++	for (uint32_t m = 2; m < 7; m++) {
++		memset(&hmd->base.rendering_modes[m], 0, sizeof(hmd->base.rendering_modes[m]));
++	}
++	hmd->base.rendering_mode_count = 2;
++#endif
++
+ 	// Per-mode tracking capability (#441): sim_display has no real eye
+ 	// tracker, so every mode stays untracked (mode_flags/reserved are
+ 	// zero from the calloc'd device). Under the dev-only
+@@ -916,6 +956,9 @@ sim_display_hmd_create(void)
+ 		enum sim_display_output_mode sd_mode = sim_display_get_output_mode();
+ 		// Map internal mode to unified index: Passthrough→0, Anaglyph→1, SBS→2, SqueezedSBS→3, Quad→4
+ 		uint32_t default_mode;
++#ifdef SIM_DISPLAY_FULL_SBS_ONLY
++		default_mode = (sd_mode == SIM_DISPLAY_OUTPUT_FULL_SBS) ? 1 : 0;
++#else
+ 		switch (sd_mode) {
+ 		case SIM_DISPLAY_OUTPUT_PASSTHROUGH:  default_mode = 0; break;
+ 		case SIM_DISPLAY_OUTPUT_ANAGLYPH:     default_mode = 1; break;
+@@ -926,6 +969,7 @@ sim_display_hmd_create(void)
+ 		case SIM_DISPLAY_OUTPUT_FULL_SBS:     default_mode = 6; break;
+ 		default:                              default_mode = 0; break;
+ 		}
++#endif
+ 
+ 		// SIM_DISPLAY_FORCE_MODE overrides the SIM_DISPLAY_OUTPUT-derived
+ 		// default with an explicit unified index and keeps the DP present
+@@ -933,11 +977,16 @@ sim_display_hmd_create(void)
+ 		// this mode against every later request (plug-in-wide, any app).
+ 		int32_t forced = (int32_t)debug_get_num_option_sim_display_force_mode();
+ 		if (forced >= 0 && (uint32_t)forced < hmd->base.rendering_mode_count) {
++#ifdef SIM_DISPLAY_FULL_SBS_ONLY
++			static const enum sim_display_output_mode idx_to_internal[2] = {
++			    SIM_DISPLAY_OUTPUT_PASSTHROUGH, SIM_DISPLAY_OUTPUT_FULL_SBS};
++#else
+ 			static const enum sim_display_output_mode idx_to_internal[7] = {
+ 			    SIM_DISPLAY_OUTPUT_PASSTHROUGH, SIM_DISPLAY_OUTPUT_ANAGLYPH,
+ 			    SIM_DISPLAY_OUTPUT_SBS,         SIM_DISPLAY_OUTPUT_SQUEEZED_SBS,
+ 			    SIM_DISPLAY_OUTPUT_QUAD,        SIM_DISPLAY_OUTPUT_INTERLACED,
+ 			    SIM_DISPLAY_OUTPUT_FULL_SBS};
++#endif
+ 			default_mode = (uint32_t)forced;
+ 			sim_display_set_output_mode(idx_to_internal[default_mode]);
+ 			U_LOG_W("sim_display: SIM_DISPLAY_FORCE_MODE=%d — pinning active mode "
+diff --git a/src/xrt/drivers/sim_display/sim_display_processor.c b/src/xrt/drivers/sim_display/sim_display_processor.c
+index 67fd98544..73ff19734 100644
+--- a/src/xrt/drivers/sim_display/sim_display_processor.c
++++ b/src/xrt/drivers/sim_display/sim_display_processor.c
+@@ -85,13 +85,15 @@
+ 
+ // SPIR-V shader headers (generated at build time by spirv_shaders())
+ #include "sim_display/shaders/fullscreen.vert.h"
++#include "sim_display/shaders/squeezed_sbs.frag.h"
++#include "sim_display/shaders/passthrough.frag.h"
++#ifndef SIM_DISPLAY_FULL_SBS_ONLY
+ #include "sim_display/shaders/anaglyph.frag.h"
+ #include "sim_display/shaders/blend.frag.h"
+ #include "sim_display/shaders/sbs.frag.h"
+-#include "sim_display/shaders/squeezed_sbs.frag.h"
+ #include "sim_display/shaders/quad.frag.h"
+-#include "sim_display/shaders/passthrough.frag.h"
+ #include "sim_display/shaders/interlaced.frag.h"
++#endif
+ 
+ 
+ /*!
+@@ -641,6 +643,16 @@ create_pipeline_resources(struct sim_display_processor *sdp, int32_t target_form
+ 		size_t size;
+ 		const char *name;
+ 	} frag_shaders[SIM_DP_PIPELINE_COUNT] = {
++#ifdef SIM_DISPLAY_FULL_SBS_ONLY
++	    // Only 2D and the full side-by-side kernel are built (XRT_SIM_DISPLAY_FULL_SBS_ONLY).
++	    {NULL, 0, "SBS"},
++	    {NULL, 0, "Anaglyph"},
++	    {NULL, 0, "Blend"},
++	    {sim_display_shaders_squeezed_sbs_frag, sizeof(sim_display_shaders_squeezed_sbs_frag), "Squeezed SBS"},
++	    {NULL, 0, "Quad"},
++	    {sim_display_shaders_passthrough_frag, sizeof(sim_display_shaders_passthrough_frag), "Passthrough"},
++	    {NULL, 0, "Interlaced"},
++#else
+ 	    {sim_display_shaders_sbs_frag, sizeof(sim_display_shaders_sbs_frag), "SBS"},
+ 	    {sim_display_shaders_anaglyph_frag, sizeof(sim_display_shaders_anaglyph_frag), "Anaglyph"},
+ 	    {sim_display_shaders_blend_frag, sizeof(sim_display_shaders_blend_frag), "Blend"},
+@@ -648,11 +660,15 @@ create_pipeline_resources(struct sim_display_processor *sdp, int32_t target_form
+ 	    {sim_display_shaders_quad_frag, sizeof(sim_display_shaders_quad_frag), "Quad"},
+ 	    {sim_display_shaders_passthrough_frag, sizeof(sim_display_shaders_passthrough_frag), "Passthrough"},
+ 	    {sim_display_shaders_interlaced_frag, sizeof(sim_display_shaders_interlaced_frag), "Interlaced"},
++#endif
+ 		};
+ 
+ 	// Create all fragment shader modules upfront (keep alive until all pipelines are created)
+ 	VkShaderModule frag_modules[SIM_DP_PIPELINE_COUNT] = {VK_NULL_HANDLE};
+ 	for (int i = 0; i < SIM_DP_PIPELINE_COUNT; i++) {
++		if (frag_shaders[i].code == NULL) {
++			continue; // not built: its pipeline stays VK_NULL_HANDLE
++		}
+ 		ret = create_shader_module(vk, frag_shaders[i].code, frag_shaders[i].size, &frag_modules[i]);
+ 		if (ret != VK_SUCCESS) {
+ 			U_LOG_E("sim_display: Failed to create %s fragment shader: %d", frag_shaders[i].name, ret);
+@@ -709,10 +725,19 @@ create_pipeline_resources(struct sim_display_processor *sdp, int32_t target_form
+ 	    .pDynamicStates = dynamic_states,
+ 	};
+ 
+-	// Build all pipeline create infos with their own stage arrays
++	// Build all pipeline create infos with their own stage arrays, one per
++	// built shader (built[k] is the table index of create info k)
+ 	VkPipelineShaderStageCreateInfo all_stages[SIM_DP_PIPELINE_COUNT][2];
+ 	VkGraphicsPipelineCreateInfo pipeline_infos[SIM_DP_PIPELINE_COUNT];
+-	for (int i = 0; i < SIM_DP_PIPELINE_COUNT; i++) {
++	VkPipeline created[SIM_DP_PIPELINE_COUNT] = {VK_NULL_HANDLE};
++	int built[SIM_DP_PIPELINE_COUNT];
++	uint32_t built_count = 0;
++	for (int t = 0; t < SIM_DP_PIPELINE_COUNT; t++) {
++		if (frag_modules[t] == VK_NULL_HANDLE) {
++			continue;
++		}
++		const uint32_t i = built_count;
++		built[built_count++] = t;
+ 		all_stages[i][0] = (VkPipelineShaderStageCreateInfo){
+ 		    .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+ 		    .stage = VK_SHADER_STAGE_VERTEX_BIT,
+@@ -722,7 +747,7 @@ create_pipeline_resources(struct sim_display_processor *sdp, int32_t target_form
+ 		all_stages[i][1] = (VkPipelineShaderStageCreateInfo){
+ 		    .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+ 		    .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
+-		    .module = frag_modules[i],
++		    .module = frag_modules[t],
+ 		    .pName = "main",
+ 		};
+ 		pipeline_infos[i] = (VkGraphicsPipelineCreateInfo){
+@@ -743,8 +768,10 @@ create_pipeline_resources(struct sim_display_processor *sdp, int32_t target_form
+ 	}
+ 
+ 	// Create all pipelines in a single batch call
+-	ret = vk->vkCreateGraphicsPipelines(vk->device, VK_NULL_HANDLE, SIM_DP_PIPELINE_COUNT, pipeline_infos, NULL,
+-	                                    sdp->pipelines);
++	ret = vk->vkCreateGraphicsPipelines(vk->device, VK_NULL_HANDLE, built_count, pipeline_infos, NULL, created);
++	for (uint32_t k = 0; k < built_count; k++) {
++		sdp->pipelines[built[k]] = created[k];
++	}
+ 
+ 	// Destroy all shader modules now that pipelines are created
+ 	for (int i = 0; i < SIM_DP_PIPELINE_COUNT; i++)
+@@ -1393,6 +1420,10 @@ sim_display_processor_create_impl(enum sim_display_output_mode mode,
+ 	// than carrying its own (multi-screen M2).
+ 	sim_display_set_output_mode(mode);
+ 
++#ifdef SIM_DISPLAY_FULL_SBS_ONLY
++	U_LOG_W("Created sim display processor (2D and full side by side only), initial mode: %s",
++	        mode == SIM_DISPLAY_OUTPUT_FULL_SBS ? "Full SBS" : "Passthrough");
++#else
+ 	U_LOG_W("Created sim display processor (all %d pipelines), initial mode: %s", SIM_DP_PIPELINE_COUNT,
+ 	        mode == SIM_DISPLAY_OUTPUT_SBS           ? "SBS" :
+ 	        mode == SIM_DISPLAY_OUTPUT_ANAGLYPH       ? "Anaglyph" :
+@@ -1401,6 +1432,7 @@ sim_display_processor_create_impl(enum sim_display_output_mode mode,
+ 	        mode == SIM_DISPLAY_OUTPUT_INTERLACED      ? "Interlaced" :
+ 	        mode == SIM_DISPLAY_OUTPUT_FULL_SBS        ? "Full SBS" :
+ 	        mode == SIM_DISPLAY_OUTPUT_PASSTHROUGH     ? "Passthrough" : "Blend");
++#endif
+ 
+ 	if (sdp->screen_bound) {
+ 		U_LOG_W("sim_display: segment DP %p for screen 0x%016llx — %ux%u px, %.3f x %.3f m, desktop origin (%d, %d)",
+diff --git a/src/xrt/drivers/sim_display/sim_display_processor_gl.c b/src/xrt/drivers/sim_display/sim_display_processor_gl.c
+index fd19c9375..253e8a5ab 100644
+--- a/src/xrt/drivers/sim_display/sim_display_processor_gl.c
++++ b/src/xrt/drivers/sim_display/sim_display_processor_gl.c
+@@ -814,12 +814,22 @@ sim_display_processor_gl_create_bound(enum sim_display_output_mode mode,
+ 	}
+ 
+ 	// Compile all shader programs for instant runtime switching
++#ifdef SIM_DISPLAY_FULL_SBS_ONLY
++	// Only 2D and the full side-by-side kernel are built (XRT_SIM_DISPLAY_FULL_SBS_ONLY).
++	const char *fs_sources[SIM_DP_PIPELINE_COUNT] = {NULL, NULL,           NULL, FS_SQUEEZED_SBS,
++	                                                 NULL, FS_PASSTHROUGH, NULL};
++#else
+ 	const char *fs_sources[SIM_DP_PIPELINE_COUNT] = {FS_SBS,  FS_ANAGLYPH,    FS_BLEND, FS_SQUEEZED_SBS,
+ 	                                                 FS_QUAD, FS_PASSTHROUGH, FS_INTERLACED};
++#endif
+ 	const char *mode_names[SIM_DP_PIPELINE_COUNT] = {"SBS",  "Anaglyph",    "Blend", "Squeezed SBS",
+ 	                                                 "Quad", "Passthrough", "Interlaced"};
+ 
+ 	for (int i = 0; i < SIM_DP_PIPELINE_COUNT; i++) {
++		if (fs_sources[i] == NULL) {
++			sdp->programs[i] = 0;
++			continue;
++		}
+ 		sdp->programs[i] = create_program(VS_FULLSCREEN, fs_sources[i]);
+ 		if (sdp->programs[i] == 0) {
+ 			U_LOG_E("sim_display GL: failed to create %s program", mode_names[i]);
+diff --git a/src/xrt/drivers/sim_display/sim_display_settings.c b/src/xrt/drivers/sim_display/sim_display_settings.c
+index f651f8880..e32b4f15a 100644
+--- a/src/xrt/drivers/sim_display/sim_display_settings.c
++++ b/src/xrt/drivers/sim_display/sim_display_settings.c
+@@ -46,12 +46,21 @@ static const struct knob g_knobs[] = {
+     {{"TRACKING_SWAY_PERIOD_MS", XRT_COMPONENT_SETTING_TYPE_INT, "4000", "fake tracking: sway period (>= 100)"},
+      "FAKE_TRACKING_SWAY_PERIOD_MS"},
+     // Panel geometry + output.
++#ifdef SIM_DISPLAY_FULL_SBS_ONLY
++    {{"OUTPUT", XRT_COMPONENT_SETTING_TYPE_ENUM, "sbs_full",
++      "initial output mode: sbs_full|full_sbs (declared to a stereo desktop compositor), 2d|passthrough"},
++     "OUTPUT"},
++    {{"FORCE_MODE", XRT_COMPONENT_SETTING_TYPE_INT, "-1",
++      "pin the rendering mode index (0=2D 1=Full SBS) for every app; -1 = off"},
++     "FORCE_MODE"},
++#else
+     {{"OUTPUT", XRT_COMPONENT_SETTING_TYPE_ENUM, "anaglyph",
+       "initial output mode: 2d|passthrough, anaglyph, sbs, squeezed|squeezed_sbs, quad, interlaced, blend"},
+      "OUTPUT"},
+     {{"FORCE_MODE", XRT_COMPONENT_SETTING_TYPE_INT, "-1",
+       "pin the rendering mode index (0=2D 1=Anaglyph 2=Cropped SBS 3=Squeezed SBS 4=Quad) for every app; -1 = off"},
+      "FORCE_MODE"},
++#endif
+     {{"WIDTH_M", XRT_COMPONENT_SETTING_TYPE_FLOAT, "0.344", "panel width in metres"}, "WIDTH_M"},
+     {{"HEIGHT_M", XRT_COMPONENT_SETTING_TYPE_FLOAT, "0.194", "panel height in metres"}, "HEIGHT_M"},
+     {{"NOMINAL_Z_M", XRT_COMPONENT_SETTING_TYPE_FLOAT, "0.60", "nominal viewer distance in metres"}, "NOMINAL_Z_M"},
+diff --git a/src/xrt/drivers/sim_display/sim_display_zone_common.h b/src/xrt/drivers/sim_display/sim_display_zone_common.h
+index 0ce053e92..e10138f9b 100644
+--- a/src/xrt/drivers/sim_display/sim_display_zone_common.h
++++ b/src/xrt/drivers/sim_display/sim_display_zone_common.h
+@@ -276,6 +276,17 @@ sim_zone_substitute_position_preserving(enum sim_display_output_mode mode, bool
+ 		return false;
+ 	}
+ 	static bool logged = false;
++#ifdef SIM_DISPLAY_FULL_SBS_ONLY
++	// No anaglyph is built to substitute: full side by side stays, and the log
++	// says that the zone mask is not position-preserving on it.
++	if (!logged) {
++		logged = true;
++		U_LOG_W("sim_display %s: zone mask active — this build has no position-preserving output to "
++		        "substitute (2D and full side by side only), so output mode %d is drawn as it is (#842)",
++		        variant, (int)mode);
++	}
++	return false;
++#else
+ 	if (!logged) {
+ 		logged = true;
+ 		U_LOG_W("sim_display %s: zone mask active — substituting position-preserving anaglyph "
+@@ -283,6 +294,7 @@ sim_zone_substitute_position_preserving(enum sim_display_output_mode mode, bool
+ 		        variant, (int)mode);
+ 	}
+ 	return true;
++#endif
+ }
+ 
+ /*!

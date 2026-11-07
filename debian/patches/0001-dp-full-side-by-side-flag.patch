@@ -1,0 +1,237 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Daniel Campos Ramos <Capitain_Jack@yahoo.com>
+Date: Sat, 7 Nov 2026 00:33:53 -0300
+Subject: [PATCH 1/8] feat(dp): XRT_DP_SCANOUT_FLAG_FULL_SIDE_BY_SIDE, an
+ output for a stereo compositor
+
+A display processor whose output is the views placed side by side, view 0
+(the left eye) first, each at the resolution its tile was rendered at, hands
+the desktop a picture a stereo compositor can show per eye: the layout HDMI
+1.4b calls 3D structure "Side-by-Side (Full)". The runtime cannot infer that
+from the pixels, so the DP says it, per instance and per mode, with a new bit
+in the existing xrt_dp_scanout_caps::flags word (no layout change, no ABI
+bump: a plug-in built before the bit wrote 0 there, an ordinary weave).
+
+xrt_display_processor_vk_outputs_full_sbs() reads it with the same
+"didn't answer means no" rule as the resample bit, and the unit test pins the
+back-compat gate: a plug-in built before get_scanout_caps is never called, a
+NULL slot or a declining DP reads no, and only the bit itself says yes.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Daniel Campos Ramos <Capitain_Jack@yahoo.com>
+
+Origin: vendor, https://github.com/danielcamposramos/displayxr-runtime/commit/f1c984fd2f10a8f4cc90b17f9d125f37de8a5f3f
+Forwarded: https://github.com/danielcamposramos/displayxr-runtime/tree/order34-sbs-declare (the pull request to DisplayXR follows the answer on https://github.com/DisplayXR/displayxr-runtime/issues/1928)
+Comment: Sparky Stereo OS ORDER 34; made on v2.65.0, applied to v2.66.3 without conflict.
+Last-Update: 2026-11-07
+---
+ .../include/xrt/xrt_display_processor_vk.h    |  19 +++
+ src/xrt/include/xrt/xrt_display_scanout.h     |  25 ++++
+ tests/CMakeLists.txt                          |   1 +
+ tests/tests_dp_full_sbs.cpp                   | 119 ++++++++++++++++++
+ 4 files changed, 164 insertions(+)
+ create mode 100644 tests/tests_dp_full_sbs.cpp
+
+diff --git a/src/xrt/include/xrt/xrt_display_processor_vk.h b/src/xrt/include/xrt/xrt_display_processor_vk.h
+index 7a5716d00..b4c258545 100644
+--- a/src/xrt/include/xrt/xrt_display_processor_vk.h
++++ b/src/xrt/include/xrt/xrt_display_processor_vk.h
+@@ -1334,6 +1334,25 @@ xrt_display_processor_vk_tolerates_resample(struct xrt_display_processor_vk *xdp
+ 	return (caps.flags & XRT_DP_SCANOUT_FLAG_TOLERATES_RESAMPLE) != 0;
+ }
+ 
++/*!
++ * Is the DP's output, in its current mode, a full side-by-side picture for a
++ * stereo desktop compositor (@ref XRT_DP_SCANOUT_FLAG_FULL_SIDE_BY_SIDE)?
++ * Every "didn't answer" case — absent slot, NULL, false return — is false: an
++ * ordinary weave, presented and shown exactly as before the flag existed.
++ *
++ * @public @memberof xrt_display_processor_vk
++ */
++static inline bool
++xrt_display_processor_vk_outputs_full_sbs(struct xrt_display_processor_vk *xdp)
++{
++	struct xrt_dp_scanout_caps caps;
++	xrt_dp_scanout_caps_init(&caps);
++	if (!xrt_display_processor_vk_get_scanout_caps(xdp, &caps)) {
++		return false;
++	}
++	return (caps.flags & XRT_DP_SCANOUT_FLAG_FULL_SIDE_BY_SIDE) != 0;
++}
++
+ /*!
+  * @copydoc xrt_display_processor_vk::get_background_preview
+  *
+diff --git a/src/xrt/include/xrt/xrt_display_scanout.h b/src/xrt/include/xrt/xrt_display_scanout.h
+index d1fc41cfd..88634e3ed 100644
+--- a/src/xrt/include/xrt/xrt_display_scanout.h
++++ b/src/xrt/include/xrt/xrt_display_scanout.h
+@@ -158,6 +158,31 @@ struct xrt_dp_scanout_caps
+  */
+ #define XRT_DP_SCANOUT_FLAG_PHASE_FROM_PRESENT_ORIGIN (1u << 1)
+ 
++/*!
++ * @ref xrt_dp_scanout_caps::flags: THIS instance's output, in its current
++ * mode, is the views placed side by side, view 0 (the left eye) first, each at
++ * the resolution its tile was rendered at, untouched — a picture meant for a
++ * stereo desktop compositor that shows each half to its own eye (the layout
++ * HDMI 1.4b calls 3D structure "Side-by-Side (Full)", value 3). The DP keeps
++ * no knowledge of the screen: the compositor resizes the views once and turns
++ * them into what each output needs (a 3D television's HDMI 3D mode, anaglyph
++ * on a 2D monitor, the left view alone on a plain 2D output).
++ *
++ * When the bit is set and the window system offers a stereo declaration, the
++ * runtime presents a target as wide as the views laid side by side (twice the
++ * window's width for two views) and declares the window as holding them, once;
++ * the window keeps its size on screen. Where no declaration is offered the
++ * target stays the window's size and the runtime says so in its log, so the
++ * window shows the two views side by side, flat.
++ *
++ * Set per INSTANCE and per MODE (re-read when the rendering mode changes, like
++ * @ref XRT_DP_SCANOUT_FLAG_TOLERATES_RESAMPLE). Bit clear (the default, every
++ * plug-in built before the bit) = an ordinary weave the window shows as is.
++ *
++ * @ingroup xrt_iface
++ */
++#define XRT_DP_SCANOUT_FLAG_FULL_SIDE_BY_SIDE (1u << 2)
++
+ /*!
+  * Size of the V1 caps shape. Plug-ins accept any caller `struct_size >= ` this
+  * and reject only callers older than the slot itself.
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index b001dfa40..e49a5ad15 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -32,6 +32,7 @@ set(tests
+     tests_dp_weave_scope
+     tests_dp_windowless_d3d11
+     tests_dp_vk_snap_window_rect
++    tests_dp_full_sbs
+     tests_weave_snap_grid
+     tests_lift_mailbox
+     tests_sim_conversion
+diff --git a/tests/tests_dp_full_sbs.cpp b/tests/tests_dp_full_sbs.cpp
+new file mode 100644
+index 000000000..8d46f580f
+--- /dev/null
++++ b/tests/tests_dp_full_sbs.cpp
+@@ -0,0 +1,119 @@
++// Copyright 2026, The DisplayXR Project
++// SPDX-License-Identifier: BSL-1.0
++/*!
++ * @file
++ * @brief  The full side-by-side output flag and its back-compat gate.
++ *
++ * XRT_DP_SCANOUT_FLAG_FULL_SIDE_BY_SIDE makes the runtime present a target twice
++ * the window's width and declare the window to a stereo desktop compositor. A
++ * wrong "yes" doubles a window and declares a weave as stereo, so the reading
++ * must be "no" in every case where the DP did not say yes: a plug-in built
++ * before get_scanout_caps (whose slot bytes the runtime must never read), a
++ * NULL slot, a declining DP, a DP that sets only the other flags.
++ */
++
++#include "catch_amalgamated.hpp"
++
++#include "xrt/xrt_display_scanout.h"
++#include "xrt/xrt_display_processor_vk.h"
++
++#include <cstring>
++
++namespace {
++
++bool g_called = false;
++bool g_answer = true;
++uint32_t g_flags = 0;
++
++bool
++fake_get_scanout_caps(struct xrt_display_processor_vk *xdp, struct xrt_dp_scanout_caps *out_caps)
++{
++	(void)xdp;
++	g_called = true;
++	if (!g_answer) {
++		return false;
++	}
++	out_caps->weave_scope = XRT_DP_WEAVE_SCOPE_CANVAS;
++	out_caps->flags = g_flags;
++	return true;
++}
++
++struct xrt_display_processor_vk
++make_dp(uint32_t struct_size, bool with_fn)
++{
++	struct xrt_display_processor_vk dp;
++	std::memset(&dp, 0, sizeof(dp));
++	dp.base.struct_size = struct_size;
++	dp.get_scanout_caps = with_fn ? fake_get_scanout_caps : nullptr;
++	return dp;
++}
++
++//! `base.struct_size` of a plug-in built one slot before get_scanout_caps.
++constexpr uint32_t
++size_without_slot()
++{
++	return (uint32_t)offsetof(struct xrt_display_processor_vk, get_scanout_caps);
++}
++
++} // namespace
++
++TEST_CASE("dp_full_sbs: the bit is new and distinct")
++{
++	CHECK(XRT_DP_SCANOUT_FLAG_FULL_SIDE_BY_SIDE == (1u << 2));
++	CHECK((XRT_DP_SCANOUT_FLAG_FULL_SIDE_BY_SIDE & XRT_DP_SCANOUT_FLAG_TOLERATES_RESAMPLE) == 0);
++	CHECK((XRT_DP_SCANOUT_FLAG_FULL_SIDE_BY_SIDE & XRT_DP_SCANOUT_FLAG_PHASE_FROM_PRESENT_ORIGIN) == 0);
++	// Carried in the existing flags word: no change to the caps layout.
++	CHECK(sizeof(struct xrt_dp_scanout_caps) == XRT_DP_SCANOUT_CAPS_SIZE_V1);
++}
++
++TEST_CASE("dp_full_sbs: a pre-append plug-in is not full SBS and is never called")
++{
++	g_called = false;
++	g_answer = true;
++	g_flags = XRT_DP_SCANOUT_FLAG_FULL_SIDE_BY_SIDE;
++	struct xrt_display_processor_vk dp = make_dp(size_without_slot(), /* with_fn */ true);
++
++	CHECK_FALSE(xrt_display_processor_vk_outputs_full_sbs(&dp));
++	CHECK_FALSE(g_called);
++}
++
++TEST_CASE("dp_full_sbs: NULL slot, a declining DP and no DP are not full SBS")
++{
++	g_called = false;
++	g_answer = true;
++	g_flags = XRT_DP_SCANOUT_FLAG_FULL_SIDE_BY_SIDE;
++	struct xrt_display_processor_vk no_fn = make_dp(sizeof(no_fn), /* with_fn */ false);
++	CHECK_FALSE(xrt_display_processor_vk_outputs_full_sbs(&no_fn));
++	CHECK_FALSE(g_called);
++
++	g_answer = false;
++	struct xrt_display_processor_vk declining = make_dp(sizeof(declining), /* with_fn */ true);
++	CHECK_FALSE(xrt_display_processor_vk_outputs_full_sbs(&declining));
++	CHECK(g_called);
++
++	CHECK_FALSE(xrt_display_processor_vk_outputs_full_sbs(nullptr));
++}
++
++TEST_CASE("dp_full_sbs: only the bit itself says full SBS")
++{
++	g_answer = true;
++	struct xrt_display_processor_vk dp = make_dp(sizeof(dp), /* with_fn */ true);
++
++	// A plug-in built before the bit wrote 0 here: an ordinary weave.
++	g_flags = 0;
++	CHECK_FALSE(xrt_display_processor_vk_outputs_full_sbs(&dp));
++
++	// Tolerating a resample (anaglyph, squeezed SBS) is not full SBS.
++	g_flags = XRT_DP_SCANOUT_FLAG_TOLERATES_RESAMPLE | XRT_DP_SCANOUT_FLAG_PHASE_FROM_PRESENT_ORIGIN;
++	CHECK_FALSE(xrt_display_processor_vk_outputs_full_sbs(&dp));
++	CHECK(xrt_display_processor_vk_tolerates_resample(&dp));
++
++	g_flags = XRT_DP_SCANOUT_FLAG_FULL_SIDE_BY_SIDE | XRT_DP_SCANOUT_FLAG_TOLERATES_RESAMPLE;
++	CHECK(xrt_display_processor_vk_outputs_full_sbs(&dp));
++	CHECK(xrt_display_processor_vk_tolerates_resample(&dp));
++
++	// The bit alone, too: full SBS does not imply resample tolerance.
++	g_flags = XRT_DP_SCANOUT_FLAG_FULL_SIDE_BY_SIDE;
++	CHECK(xrt_display_processor_vk_outputs_full_sbs(&dp));
++	CHECK_FALSE(xrt_display_processor_vk_tolerates_resample(&dp));
++}

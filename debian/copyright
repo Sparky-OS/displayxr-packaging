@@ -1,0 +1,635 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: DisplayXR Runtime
+Upstream-Contact: https://github.com/DisplayXR/displayxr-runtime/issues
+Source: https://github.com/DisplayXR/displayxr-runtime (tag v2.66.3, c96f08b7ca5b57418123da0741a4a7bd6346a402)
+ https://github.com/DisplayXR/displayxr-mcp (tag v0.5.6, e10a722ad20b59d667044833758c51faf7c253e8)
+ https://github.com/DisplayXR/displayxr-common (tag v1.2.0, 917adf4719acc4f6787a5978b24f5f0c20f9994e)
+ https://github.com/DisplayXR/displayxr-runtime/releases/tag/v2.66.3 (displayxr-runtime_2.66.3_amd64.deb)
+Comment: DisplayXR is a fork of Monado (https://monado.freedesktop.org/) by
+ Collabora, Ltd. and the Monado contributors (NOTICE). The paragraphs below
+ follow each file's own SPDX-License-Identifier and SPDX-FileCopyrightText
+ tags, read with reuse 6.2.0 (`reuse lint --json`) on each source tree, and
+ .reuse/dep5 of the runtime for the files it covers; a file that names no
+ licence is under the project's LICENSE (BSL-1.0 for the runtime, Apache-2.0
+ for displayxr-mcp and displayxr-common, whose LICENSE and NOTICE say so).
+ A folder is written FOLDER/* when every file in it has the same licence.
+ The holders' e-mail addresses are in the files themselves and not repeated
+ here.
+
+Files: *
+Copyright: 2009-2010 Iowa State University
+           2009-2012 Iowa State University
+           2009-2013 Iowa State University
+           2011-2023 Contributors
+           2013 Fredrik Hultin
+           2013 Jakob Bornecrantz
+           2013-2020 Contributors
+           2013-2020 Rylie Pavlik
+           2014 Kevin M. Godby
+           2015 Sensics, Inc
+           2016 Sensics, Inc
+           2017 Bastiaan Olij
+           2017 James Sarrett
+           2018-2019 Collabora, Ltd
+           2018-2020 Collabora, Ltd
+           2018-2020 Collabora, Ltd. and the Monado contributors
+           2018-2020, 2023 Collabora, Ltd
+           2018-2021 Collabora, Ltd
+           2018-2021 Collabora, Ltd. and the Monado contributors
+           2018-2022 Collabora, Ltd
+           2018-2023 Collabora, Ltd
+           2018-2024 Collabora, Ltd
+           2018-2025 Collabora, Ltd. and the Monado contributors
+           2019 Benjamin Saunders
+           2019 Collabora, Ltd
+           2019 Drew DeVault
+           2019, 2022 Collabora, Ltd
+           2019-2020 Collabora, Ltd
+           2019-2021 Collabora, Ltd
+           2019-2022 Collabora, Ltd
+           2019-2023 Collabora, Ltd
+           2019-2024 Collabora, Ltd
+           2019-2025 Collabora, Ltd
+           2020 Collabora, Ltd
+           2020 Collabora, Ltd. and the Monado contributors
+           2020 Nova King
+           2020-2021 Collabora, Ltd
+           2020-2022 Collabora, Ltd
+           2020-2023 Collabora Ltd
+           2020-2023 Collabora, Ltd
+           2020-2024 Collabora, Ltd
+           2020-2025 Collabora, Ltd
+           2021 Collabora Ltd
+           2021 Collabora, Ltd
+           2021 Collabora, Ltd. and the Monado contributors
+           2021 Jan Schmidt
+           2021 Mateo de Mayo
+           2021 Moshi Turner
+           2021 Qualcomm Innovation Center, Inc
+           2021-2022 Collabora Ltd
+           2021-2022 Collabora, Ltd
+           2021-2022 Collabora, Ltd. and the Monado contributors
+           2021-2023 Collabora Ltd
+           2021-2023 Collabora, Ltd
+           2021-2023 Collabora, Ltd. and the Monado contributors
+           2021-2024 Collabora, Ltd
+           2022 Campbell Suter
+           2022 Collabora, Inc
+           2022 Collabora, Ltd
+           2022 Collabora, Ltd. and the Monado contributors
+           2022 James Hogan
+           2022 Magic Leap, Inc
+           2022 Qualcomm Innovation Center, Inc
+           2022-2023 Collabora, Ltd
+           2022-2023 Collabora, Ltd. and the Monado contributors
+           2022-2023 Qualcomm Innovation Center, Inc
+           2022-2024 Collabora, Inc
+           2022-2024 Collabora, Ltd
+           2023 Collabora Ltd
+           2023 Collabora, Ltd
+           2023 Joseph Albers
+           2023 NVIDIA CORPORATION
+           2023 Qualcomm Innovation Center, Inc
+           2023-2024 Collabora, Ltd
+           2023-2024 Collabora, Ltd. and the Monado contributors
+           2023-2024 Qualcomm Innovation Center, Inc
+           2023-2025 Collabora, Ltd
+           2023-2025 NVIDIA CORPORATION
+           2024 Collabora, Ltd
+           2024 Collabora, Ltd. and the Monado contributors
+           2024 Jan Schmidt
+           2024 QUALCOMM CORPORATION
+           2024 The DisplayXR Project
+           2024-2025 Leia Inc
+           2024-2025 NVIDIA CORPORATION
+           2024-2025 The DisplayXR Project
+           2024-2026 DisplayXR
+           2024-2026 NVIDIA CORPORATION
+           2024-2026 The DisplayXR Project
+           2024-2026 The DisplayXR Project contributors
+           2025 Beyley Cardellio
+           2025 Collabora, Ltd
+           2025 Leia Inc
+           2025 Leia Inc.
+           2025 NVIDIA CORPORATION
+           2025 The DisplayXR Project
+           2025-2026 The DisplayXR Project
+           2026 Collabora, Ltd
+           2026 DisplayXR
+           2026 DisplayXR / Leia Inc
+           2026 DisplayXR contributors
+           2026 Leia Inc
+           2026 The DisplayXR Project
+           2026 The DisplayXR Project and its contributors
+           2026 The DisplayXR Project</Copyright>
+           Catch2 Authors
+           Collabora, Ltd. and the Monado contributors
+License: BSL-1.0
+
+Files: docs/specs/extensions/XR_DXR_android_surface_binding.md
+       docs/specs/extensions/spatial-display-set.md
+       gradle/*
+       gradlew
+       gradlew.bat
+       src/external/flexkalman/.clang-format
+       src/external/flexkalman/flexkalman/AbsoluteOrientationMeasurement.h
+       src/external/flexkalman/flexkalman/AbsolutePositionMeasurement.h
+       src/external/flexkalman/flexkalman/AngularVelocityMeasurement.h
+       src/external/flexkalman/flexkalman/AugmentedProcessModel.h
+       src/external/flexkalman/flexkalman/AugmentedState.h
+       src/external/flexkalman/flexkalman/ConstantProcess.h
+       src/external/flexkalman/flexkalman/EigenQuatExponentialMap.h
+       src/external/flexkalman/flexkalman/ExternalQuaternion.h
+       src/external/flexkalman/flexkalman/FlexibleKalmanBase.h
+       src/external/flexkalman/flexkalman/FlexibleKalmanCorrect.h
+       src/external/flexkalman/flexkalman/FlexibleKalmanFilter.h
+       src/external/flexkalman/flexkalman/FlexibleKalmanMeta.h
+       src/external/flexkalman/flexkalman/FlexibleUnscentedCorrect.h
+       src/external/flexkalman/flexkalman/MatrixExponentialMap.h
+       src/external/flexkalman/flexkalman/OrientationConstantVelocity.h
+       src/external/flexkalman/flexkalman/OrientationState.h
+       src/external/flexkalman/flexkalman/PoseConstantVelocity.h
+       src/external/flexkalman/flexkalman/PoseConstantVelocityGeneric.h
+       src/external/flexkalman/flexkalman/PoseDampedConstantVelocity.h
+       src/external/flexkalman/flexkalman/PoseSeparatelyDampedConstantVelocity.h
+       src/external/flexkalman/flexkalman/PoseState.h
+       src/external/flexkalman/flexkalman/PoseStateExponentialMap.h
+       src/external/flexkalman/flexkalman/PureVectorState.h
+       src/external/flexkalman/flexkalman/README.md
+       src/external/flexkalman/flexkalman/SigmaPointGenerator.h
+       src/external/glad/include/EGL/*
+       src/external/openxr_includes/openxr/XR_DXR_android_surface_binding.h
+       src/external/openxr_includes/openxr/XR_DXR_app_share.h
+       src/external/openxr_includes/openxr/XR_DXR_atlas_capture.h
+       src/external/openxr_includes/openxr/XR_DXR_cocoa_window_binding.h
+       src/external/openxr_includes/openxr/XR_DXR_cursor_depth.h
+       src/external/openxr_includes/openxr/XR_DXR_depth_budget.h
+       src/external/openxr_includes/openxr/XR_DXR_desktop_control.h
+       src/external/openxr_includes/openxr/XR_DXR_display_info.h
+       src/external/openxr_includes/openxr/XR_DXR_display_zones.h
+       src/external/openxr_includes/openxr/XR_DXR_input_providers.h
+       src/external/openxr_includes/openxr/XR_DXR_lift.h
+       src/external/openxr_includes/openxr/XR_DXR_local_3d_zone.h
+       src/external/openxr_includes/openxr/XR_DXR_macos_gl_binding.h
+       src/external/openxr_includes/openxr/XR_DXR_mcp_tools.h
+       src/external/openxr_includes/openxr/XR_DXR_result_codes.h
+       src/external/openxr_includes/openxr/XR_DXR_spatial_workspace.h
+       src/external/openxr_includes/openxr/XR_DXR_stereo_camera.h
+       src/external/openxr_includes/openxr/XR_DXR_stereo_comfort.h
+       src/external/openxr_includes/openxr/XR_DXR_swapchain_color_encoding.h
+       src/external/openxr_includes/openxr/XR_DXR_view_rig.h
+       src/external/openxr_includes/openxr/XR_DXR_wayland_surface_binding.h
+       src/external/openxr_includes/openxr/XR_DXR_weave.h
+       src/external/openxr_includes/openxr/XR_DXR_win32_window_binding.h
+       src/external/openxr_includes/openxr/XR_DXR_workspace_file_dialog.h
+       src/external/openxr_includes/openxr/XR_DXR_xlib_window_binding.h
+       src/external/openxr_includes/openxr/openxr_extension_helpers.h
+       src/xrt/auxiliary/math/m_quatexpmap.cpp
+       src/xrt/targets/displayxr_client/*
+       src/xrt/targets/openxr_android/src/main/java/org/freedesktop/monado/openxr_runtime/WakeActivity.kt
+       test_apps/wake_probe_android/build.gradle
+       test_apps/wake_probe_android/src/main/java/*
+       test_apps/wake_stub_android/*
+Copyright: 2007-2020 The Khronos Group Inc
+           2010 the original author or authors
+           2015 Sensics, Inc
+           2015 the original author or authors
+           2015, 2016 Sensics, Inc
+           2015-2016 Sensics, Inc
+           2015-2021 the original authors
+           2016 Sensics, Inc
+           2017-2022 The Khronos Group Inc
+           2019 Collabora, Ltd
+           2019-2020 Collabora, Ltd
+           2020 Collabora, Ltd
+           2025 The DisplayXR Project
+           2025-2026 The DisplayXR Project
+           2026 DisplayXR
+           2026 The DisplayXR Project
+           2026 The DisplayXR Project and its contributors
+License: Apache-2.0
+
+Files: src/external/flexkalman/flexkalman/BaseTypes.h
+Copyright: 2019 Collabora, Ltd
+License: Apache-2.0 or BSL-1.0
+
+Files: src/external/openxr_includes/openxr/openxr.h
+       src/external/openxr_includes/openxr/openxr_loader_negotiation.h
+       src/external/openxr_includes/openxr/openxr_platform.h
+       src/external/openxr_includes/openxr/openxr_platform_defines.h
+       src/external/openxr_includes/openxr/openxr_reflection.h
+       src/external/openxr_includes/openxr/openxr_reflection_parent_structs.h
+       src/external/openxr_includes/openxr/openxr_reflection_structs.h
+Copyright: 2017-2026 The Khronos Group Inc
+License: Apache-2.0 or MIT
+
+Files: cmake/FindEGL.cmake
+       cmake/FindSystemd.cmake
+       cmake/OptionWithDeps.cmake
+       src/external/tracy/*
+Copyright: 2000-2022 Kitware, Inc., Insight Software Consortium
+           2011-2020 Yann Collet
+           2012-2018 Free Software Foundation, Inc
+           2012-2021 Free Software Foundation, Inc
+           2013-2016 Cameron Desrochers
+           2014 Alex Merry
+           2014 Martin Gräßlin
+           2015 Jari Vetoniemi
+           2017-2022 Bartosz Taudul
+           2019, 2021 Rylie Pavlik
+           2020 Erik Rigtorp
+           2020-2021 Collabora, Ltd
+           2020-2021 Free Software Foundation, Inc
+           2022 Collabora, Ltd
+License: BSD-3-Clause
+
+Files: src/external/flexkalman/flexkalman/AbsolutePositionLeverArmMeasurement.h
+       src/external/flexkalman/flexkalman/SO3.h
+Copyright: 2019-2020 Collabora, Ltd
+License: BSL-1.0 or Apache-2.0
+
+Files: src/xrt/targets/android_common/src/main/res/drawable/*
+       src/xrt/targets/openxr_android/src/main/ic_launcher-playstore.png
+       src/xrt/targets/openxr_android/src/main/res/drawable-anydpi/*
+       src/xrt/targets/openxr_android/src/main/res/drawable-hdpi/*
+       src/xrt/targets/openxr_android/src/main/res/drawable-mdpi/*
+       src/xrt/targets/openxr_android/src/main/res/drawable-xhdpi/*
+       src/xrt/targets/openxr_android/src/main/res/drawable-xxhdpi/*
+       src/xrt/targets/openxr_android/src/main/res/drawable/ic_logo_launcher.xml
+       src/xrt/targets/openxr_android/src/main/res/drawable/ic_monado_vertical.xml
+       src/xrt/targets/openxr_android/src/main/res/mipmap-anydpi-v26/*
+       src/xrt/targets/openxr_android/src/main/res/mipmap-hdpi/*
+       src/xrt/targets/openxr_android/src/main/res/mipmap-mdpi/*
+       src/xrt/targets/openxr_android/src/main/res/mipmap-xhdpi/*
+       src/xrt/targets/openxr_android/src/main/res/mipmap-xxhdpi/*
+       src/xrt/targets/openxr_android/src/main/res/mipmap-xxxhdpi/*
+       src/xrt/targets/openxr_android/src/main/res/values/ic_launcher_background.xml
+       tests/android/README.md
+Copyright: 2023 Collabora, Ltd
+           2023-2024 Collabora, Ltd
+           2024 Collabora, Ltd
+License: CC-BY-4.0
+
+Files: .clang-tidy
+       .cmake-format.py
+       .editorconfig
+       .git-blame-ignore-revs
+       .gitignore
+       .mailmap
+       CMakePresets.json
+       scripts/monado-codespell.exclude
+       src/external/.clang-tidy
+       src/external/glad/command.sh
+       src/xrt/.clang-format
+       src/xrt/.editorconfig
+       tests/.clang-format
+       tests/android/.gitignore
+       vcpkg.json
+Copyright: 2018-2020 Collabora, Ltd. and the Monado contributors
+           2018-2021 Collabora, Ltd. and the Monado contributors
+           2018-2025 Collabora, Ltd. and the Monado contributors
+           2019-2020 Collabora, Ltd
+           2020 Collabora, Ltd
+           2020-2022 Collabora, Ltd
+           2020-2022 Collabora, Ltd. and the Monado contributors
+           2021 Collabora, Ltd
+           2021-2022 Collabora, Ltd
+           2022 Collabora, Ltd
+           2023 Collabora, Ltd. and the Monado contributors
+           2023 Monado contributors
+           2024 Collabora, Ltd
+           2025 Collabora, Ltd. and the Monado contributors
+License: CC0-1.0
+
+Files: src/external/glad/include/glad/*
+       src/external/glad/src/*
+Copyright: 2013-2023 David Herberth
+License: CC0-1.0 and Apache-2.0
+
+Files: src/external/glad/include/KHR/*
+Copyright: 2008-2018 The Khronos Group Inc
+License: LicenseRef-Khronos-Free-Use-License-for-Software-and-Documentation
+
+Files: cmake/sanitizers/*
+       src/external/cjson/*
+       src/external/imgui/cimgui/*
+       src/external/imgui/cimplot/*
+       src/external/imgui/imgui/*
+       src/external/imgui/implot/*
+       src/external/jnipp/Android.bp
+       src/external/jnipp/CHANGELOG.md
+       src/external/jnipp/CMakeLists.txt
+       src/external/jnipp/README.md
+       src/external/jnipp/android/*
+       src/external/jnipp/build.gradle
+       src/external/jnipp/changes/*
+       src/external/jnipp/jnipp.cpp
+       src/external/jnipp/jnipp.h
+       src/external/jnipp/jnipp.vcxproj
+       src/external/jnipp/jnipp.vcxproj.filters
+       src/external/jnipp/makefile
+       src/external/jnipp/tests/*
+       src/external/renderdoc_api/*
+       src/xrt/auxiliary/util/u_hud_font_ttf.h
+       src/xrt/targets/android_common/src/main/res/raw/*
+Copyright: 2004 Tristan Grimmer
+           2004, 2005 Tristan Grimmer
+           2009-2017 Dave Gamble and cJSON contributors
+           2013-2017 Cole Bemis
+           2013-2020 The Khronos Group Inc
+           2014-2020 Omar Cornut
+           2014-2024 Omar Cornut
+           2015 Stephan Dilly
+           2016-2020 Mitchell Dowd
+           2017 Sean Barrett
+           2018-2025 Collabora, Ltd. and the Monado contributors
+           2019-2022 Baldur Karlsson
+           2020 Collabora, Ltd
+           2020 Evan Pezent
+           2021 Collabora, Ltd
+           2023 Evan Pezent
+           2024-2026 The DisplayXR Project contributors
+License: MIT
+
+Files: src/external/imgui/imgui_monado/*
+Copyright: 2014-2020 Omar Cornut
+           2020 Collabora, Ltd
+License: MIT and BSL-1.0
+
+Files: src/external/jnipp/proclamation.json
+Copyright: 2016-2020 Mitchell Dowd
+           2020 Collabora, Ltd
+           2020 Collabora, Ltd. and the Proclamation contributors":
+License: MIT and CC0-1.0
+
+Files: src/external/bcdec/*
+       src/external/stb/*
+Copyright: 2009-2021 Sean Barrett / RAD Game Tools
+           2017 Sean Barrett
+           2022 Sergii Kudlai
+License: MIT or Unlicense
+
+Files: src/external/nanopb/*
+Copyright: 2011-2022 Petteri Aimonen
+License: Zlib
+
+Files: src/external/wayland-protocols/*.xml
+Copyright: 2008-2013 Kristian Høgsberg
+           2010-2013 Intel Corporation
+           2013 Jasper St. Pierre
+           2013 Rafael Antognolli
+           2013-2014 Collabora, Ltd
+           2013-2016 Collabora, Ltd
+           2014 Stephen "Lyude" Chandler Paul
+           2015-2017 Red Hat Inc
+           2015-2017 Samsung Electronics Co., Ltd
+           2015-2024 Red Hat, Inc
+           2017 Red Hat Inc
+           2018 The Chromium Authors
+           2022 Kenny Levinsen
+           2023 Simon Ser
+License: MIT-Wayland
+Comment: Copied from wayland-protocols (src/external/wayland-protocols/README.md);
+ the licence is the copyright block of each file.
+
+Files: src/external/wayland-protocols/kde-stereo-content-v1.xml
+Copyright: 2026 Daniel Campos Ramos
+License: MIT-CMU
+Comment: Added by debian/patches/0003-vk-native-declare-wayland.patch, byte for
+ byte the protocol of libstereo-declare (https://github.com/Sparky-OS/libstereo-declare).
+
+Files: DCO
+Copyright: 2004, 2006 The Linux Foundation and its contributors
+License: LicenseRef-DCO
+
+Files: displayxr-mcp/.github/*
+       displayxr-mcp/.gitignore
+       displayxr-mcp/CLAUDE.md
+       displayxr-mcp/CMakeLists.txt
+       displayxr-mcp/CONTRIBUTING.md
+       displayxr-mcp/NOTICE
+       displayxr-mcp/README.md
+       displayxr-mcp/adapter/*
+       displayxr-mcp/assets/*
+       displayxr-mcp/cmake/*
+       displayxr-mcp/docs/*
+       displayxr-mcp/include/*
+       displayxr-mcp/installer/*
+       displayxr-mcp/scripts/*
+       displayxr-mcp/src/*
+       displayxr-mcp/tests/*
+       displayxr-mcp/vcpkg-configuration.json
+       displayxr-mcp/vcpkg.json
+Copyright: 2024-2026 The DisplayXR Project and its contributors
+           2026 DisplayXR
+           2026 The DisplayXR Project and its contributors
+License: Apache-2.0
+
+Files: displayxr-mcp/external/cjson/*
+Copyright: 2009-2017 Dave Gamble and cJSON contributors
+License: MIT
+
+Files: displayxr-common/.github/*
+       displayxr-common/.gitignore
+       displayxr-common/CMakeLists.txt
+       displayxr-common/README.md
+       displayxr-common/docs-math-reference.md
+       displayxr-common/tests/CMakeLists.txt
+Copyright: 2024-2026 The DisplayXR Project and its contributors
+License: Apache-2.0
+
+Files: displayxr-common/common/*
+       displayxr-common/include/*
+       displayxr-common/tests/common_smoke.cpp
+       displayxr-common/tests/selftest.c
+Copyright: 2025 The DisplayXR Project and its contributors
+           2025-2026 DisplayXR contributors
+           2025-2026 The DisplayXR Project and its contributors
+           2026 DisplayXR
+           2026 DisplayXR contributors
+           2026 The DisplayXR Project and its contributors
+License: BSL-1.0
+
+Files: displayxr-common/common/stb_image.h
+ displayxr-common/common/stb_image_write.h
+Copyright: 2017 Sean Barrett
+License: MIT or Unlicense
+
+Files: release/*
+Copyright: 2024-2026 The DisplayXR Project contributors
+ 2018-2025 Collabora, Ltd. and the Monado contributors
+License: BSL-1.0
+Comment: DisplayXR's own release package of v2.66.3, carried unchanged; its
+ SHA-256, 7d216f4557d4eb54d5563a748c9f144218c79ab4a2ea48fd36fc5a216e7e8aaa,
+ is the digest the GitHub release lists for it. Only its displayxr-dashboard
+ is installed, in the displayxr-dashboard package. That program is a
+ self-contained .NET single-file bundle; its manifest
+ (displayxr-dashboard.deps.json) names these components, each with the
+ licence of its NuGet package:
+ .
+  - the dashboard itself (src/dashboard of the runtime): BSL-1.0, The DisplayXR Project;
+  - the .NET runtime 10.0.14 (Microsoft.NETCore.App.Runtime.linux-x64): MIT, Microsoft Corporation and the .NET Foundation;
+  - Avalonia 11.2.3 and its Desktop, FreeDesktop, Native, Remote.Protocol, Skia, Themes.Fluent, Win32 and X11 parts: MIT, The AvaloniaUI Project;
+  - Avalonia.Fonts.Inter 11.2.3: MIT, The AvaloniaUI Project; the Inter typeface it carries: OFL-1.1, 2016 The Inter Project Authors (https://github.com/rsms/inter);
+  - SkiaSharp 2.88.9 and HarfBuzzSharp 7.3.0.3 with their Linux native libraries: MIT, Microsoft Corporation; the Skia and HarfBuzz code inside those libraries keeps the licences SkiaSharp's own third-party notices list;
+  - MicroCom.Runtime 0.11.0: MIT, 2021 Nikita Tsukanov;
+  - Tmds.DBus.Protocol 0.21.3: MIT, Tom Deseyn.
+
+Files: debian/*
+Copyright: 2026 Daniel Ramos (Capitain Jack)
+License: BSL-1.0
+Comment: Sparky Stereo OS packaging, under the Boost Software License 1.0 like
+ DisplayXR (https://github.com/Sparky-OS/displayxr-packaging). Sparky Stereo OS,
+ Daniel Ramos's edition of SparkyLinux (by Paweł "pavroo" Pijanowski).
+
+License: Apache-2.0
+ On Debian systems the full text of this licence is in
+ /usr/share/common-licenses/Apache-2.0.
+
+License: BSD-3-Clause
+ Redistribution and use in source and binary forms, with or without modification,
+ are permitted provided that the following conditions are met:
+ .
+ 1. Redistributions of source code must retain the above copyright notice,
+ this list of conditions and the following disclaimer.
+ .
+ 2. Redistributions in binary form must reproduce the above copyright notice,
+ this list of conditions and the following disclaimer in the documentation
+ and/or other materials provided with the distribution.
+ .
+ 3. Neither the name of the copyright holder nor the names of its contributors
+ may be used to endorse or promote products derived from this software without
+ specific prior written permission.
+ .
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+ LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+ CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
+ USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+License: BSL-1.0
+ On Debian systems the full text of this licence is in
+ /usr/share/common-licenses/BSL-1.0.
+
+License: CC-BY-4.0
+ On Debian systems the full text of this licence is in
+ /usr/share/common-licenses/CC-BY-4.0.
+
+License: CC0-1.0
+ On Debian systems the full text of this licence is in
+ /usr/share/common-licenses/CC0-1.0.
+
+License: LicenseRef-DCO
+ Everyone is permitted to copy and distribute verbatim copies of this
+ license document, but changing it is not allowed.
+
+License: LicenseRef-Khronos-Free-Use-License-for-Software-and-Documentation
+ Permission is hereby granted, free of charge, to any person obtaining a
+ copy of this software and/or associated documentation files (the
+ "Materials"), to deal in the Materials without restriction, including
+ without limitation the rights to use, copy, modify, merge, publish,
+ distribute, sublicense, and/or sell copies of the Materials, and to
+ permit persons to whom the Materials are furnished to do so, subject to
+ the following conditions:
+ .
+ The above copyright notice and this permission notice shall be included
+ in all copies or substantial portions of the Materials.
+ .
+ THE MATERIALS ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+ IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+ MATERIALS OR THE USE OR OTHER DEALINGS IN THE MATERIALS.
+
+License: MIT
+ MIT License Copyright (c) <year> <copyright holders>
+ .
+ Permission is hereby granted, free of charge, to any person obtaining a copy
+ of this software and associated documentation files (the "Software"), to deal
+ in the Software without restriction, including without limitation the rights
+ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ copies of the Software, and to permit persons to whom the Software is furnished
+ to do so, subject to the following conditions:
+ .
+ The above copyright notice and this permission notice (including the next
+ paragraph) shall be included in all copies or substantial portions of the
+ Software.
+ .
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS
+ OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+ WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF
+ OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+License: MIT-CMU
+ <copyright notice> By obtaining, using, and/or copying this software and/or
+ its associated documentation, you agree that you have read, understood, and
+ will comply with the following terms and conditions:
+ .
+ Permission to use, copy, modify, and distribute this software and its associated
+ documentation for any purpose and without fee is hereby granted, provided
+ that the above copyright notice appears in all copies, and that both that
+ copyright notice and this permission notice appear in supporting documentation,
+ and that the name of the copyright holder not be used in advertising or publicity
+ pertaining to distribution of the software without specific, written permission.
+ .
+ THE COPYRIGHT HOLDER DISCLAIM ALL WARRANTIES WITH REGARD TO THIS SOFTWARE,
+ INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT
+ SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL
+ DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM THE LOSS OF USE, DATA OR
+ PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+ ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+License: MIT-Wayland
+ Permission is hereby granted, free of charge, to any person obtaining a
+ copy of this software and associated documentation files (the "Software"),
+ to deal in the Software without restriction, including without limitation
+ the rights to use, copy, modify, merge, publish, distribute, sublicense,
+ and/or sell copies of the Software, and to permit persons to whom the
+ Software is furnished to do so, subject to the following conditions:
+ .
+ The above copyright notice and this permission notice (including the next
+ paragraph) shall be included in all copies or substantial portions of the
+ Software.
+ .
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+ THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+ DEALINGS IN THE SOFTWARE.
+ .
+
+License: Unlicense
+ This is free and unencumbered software released into the public domain.
+ .
+ Anyone is free to copy, modify, publish, use, compile, sell, or distribute this software, either in source code form or as a compiled binary, for any purpose, commercial or non-commercial, and by any means.
+ .
+ In jurisdictions that recognize copyright laws, the author or authors of this software dedicate any and all copyright interest in the software to the public domain. We make this dedication for the benefit of the public at large and to the detriment of our heirs and
+ successors. We intend this dedication to be an overt act of relinquishment in perpetuity of all present and future rights to this software under copyright law.
+ .
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ .
+ For more information, please refer to <http://unlicense.org/>
+
+License: Zlib
+ zlib License
+ .
+ This software is provided 'as-is', without any express or implied warranty.  In no event will the authors be held liable for any damages arising from the use of this software.
+ .
+ Permission is granted to anyone to use this software for any purpose, including commercial applications, and to alter it and redistribute it freely, subject to the following restrictions:
+ .
+ 1. The origin of this software must not be misrepresented; you must not claim that you wrote the original software. If you use this software in a product, an acknowledgment in the product documentation would be appreciated but is not required.
+ .
+ 2. Altered source versions must be plainly marked as such, and must not be misrepresented as being the original software.
+ .
+ 3. This notice may not be removed or altered from any source distribution.

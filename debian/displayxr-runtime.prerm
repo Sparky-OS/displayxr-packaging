@@ -1,0 +1,25 @@
+#!/bin/sh
+set -e
+
+dxr_each_user_manager() {
+	command -v loginctl >/dev/null 2>&1 || return 0
+	for dxr_user in $(loginctl list-users --no-legend 2>/dev/null | awk '{print $2}'); do
+		dxr_uid="$(id -u "$dxr_user" 2>/dev/null)" || continue
+		[ -d "/run/user/$dxr_uid/systemd" ] || continue
+		timeout 10 systemctl --user --machine="$dxr_user@" "$@" >/dev/null 2>&1 || true
+	done
+}
+
+case "$1" in
+remove|deconfigure)
+	update-alternatives --remove openxr1-active-runtime /etc/xdg/openxr/1/openxr_displayxr.json
+	# not on upgrade: a running service keeps serving its clients and exits when idle (DisplayXR's prerm)
+	if command -v systemctl >/dev/null 2>&1; then
+		dxr_each_user_manager stop displayxr.socket displayxr.service
+	fi
+	;;
+esac
+
+#DEBHELPER#
+
+exit 0
