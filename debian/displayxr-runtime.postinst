@@ -8,6 +8,7 @@ set -e
 
 ACTIVE=/etc/xdg/openxr/1/active_runtime.json
 MANIFEST=/etc/xdg/openxr/1/openxr_displayxr.json
+MONADO=/usr/share/openxr/1/openxr_monado.json
 # The priority decides the runtime in automatic mode when several are installed (Monado's is 50).
 PRIORITY=60
 
@@ -40,6 +41,12 @@ configure)
 		# a conffile deleted by hand stays deleted (dpkg); say so instead of failing
 		echo "displayxr-runtime: $MANIFEST was deleted, so DisplayXR is not offered as an OpenXR runtime." >&2
 		echo "displayxr-runtime: restore it with: apt-get install --reinstall -o Dpkg::Options::=--force-confmiss displayxr-runtime" >&2
+	fi
+	# DisplayXR's own release package (2.66.3 and before) wrote through Monado's alternatives link into Monado's
+	# manifest; only reinstalling Monado's package restores it, so say so.
+	if [ -f "$MONADO" ] && grep -q 'openxr_displayxr\.so' "$MONADO"; then
+		echo "displayxr-runtime: $MONADO names DisplayXR's runtime: DisplayXR's own release package wrote it." >&2
+		echo "displayxr-runtime: Monado works again after: apt-get install --reinstall libopenxr1-monado" >&2
 	fi
 	;;
 esac
