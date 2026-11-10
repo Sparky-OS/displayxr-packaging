@@ -1,0 +1,15 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+remove|purge)
+	# what the runtime told the person ends with the package (sparky-stereo-problems)
+	if command -v sparky-stereo-problems >/dev/null 2>&1; then
+		sparky-stereo-problems clear --all displayxr-runtime
+	fi
+	;;
+esac
+
+#DEBHELPER#
+
+exit 0

@@ -58,3 +58,21 @@ seconds after its last client. Ordinary programs run the runtime in their own
 process.
 
  -- Daniel Ramos (Capitain Jack) <Capitain_Jack@yahoo.com>  Sat, 07 Nov 2026 12:30:00 +0000
+
+When a program cannot be shown in 3D
+------------------------------------
+
+A program that DisplayXR draws as two views side by side is declared to the
+desktop once (Stereo KWin makes every screen's format from it). When the
+declaration cannot be made (the desktop announces no stereo declaration, the
+program's window is one DisplayXR does not declare, or this build has no
+Wayland declaration) the views are shown flat, side by side. The runtime says
+why in its log and keeps the reason as a problem of the person in
+sparky-stereo-problems (Depends), which tells it in the session and in the
+Problems page of System Settings, in the person's language:
+
+     sparky-stereo-problems list
+
+The problem ends when a program is declared again, and when the package is
+removed. Setting DXR_STEREO_DECLARE=0 turns the declaration off by choice and
+keeps no problem.

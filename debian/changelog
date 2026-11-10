@@ -1,3 +1,15 @@
+displayxr-runtime (2.66.3-1+stereo3d2) unstable; urgency=medium
+
+  * The reason the runtime cannot declare its window to the desktop (the
+    desktop announces no stereo declaration, an X11 window the runtime does
+    not declare, a build without wayland-scanner) is told to the person
+    through sparky-stereo-problems, in the nine languages, and ends when the
+    window is declared again; before it reached the log only (Sparky Stereo
+    OS ORDER 58b, patch 0009, DXR_SPARKY_PROBLEMS). Depends on
+    sparky-stereo-problems (amd64).
+
+ -- Daniel Ramos (Capitain Jack) <Capitain_Jack@yahoo.com>  Mon, 09 Nov 2026 22:50:00 +0000
+
 displayxr-runtime (2.66.3-1+stereo3d1) unstable; urgency=medium
 
   * DisplayXR 2.66.3 built from its release tag, with displayxr-mcp 0.5.6 and

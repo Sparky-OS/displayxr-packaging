@@ -1,0 +1,5 @@
+LOCAL1="DisplayXR이 이 프로그램을 3D로 표시할 수 없습니다"
+LOCAL2="DisplayXR이 이 프로그램을 3D로 표시할 수 없습니다. 데스크톱이 DisplayXR에 필요한 스테레오 선언을 알리지 않아서 프로그램이 두 시점을 좌우로 나란히 놓은 평면 화면으로 표시됩니다. Sparky Stereo OS의 데스크톱인 Stereo KWin을 사용하고 프로그램을 다시 시작하십시오. DisplayXR의 보고: %s"
+LOCAL3="DisplayXR이 이 프로그램을 3D로 표시할 수 없습니다. 이 창은 DisplayXR이 데스크톱에 선언하지 않는 종류의 창이어서 프로그램이 두 시점을 좌우로 나란히 놓은 평면 화면으로 표시됩니다. DisplayXR이 직접 여는 창을 사용하도록 프로그램을 시작하십시오. DisplayXR의 보고: %s"
+LOCAL4="DisplayXR이 이 프로그램을 3D로 표시할 수 없습니다. 이 런타임은 Wayland 선언 없이 빌드되어서 프로그램이 두 시점을 좌우로 나란히 놓은 평면 화면으로 표시됩니다. Sparky Stereo OS의 displayxr-runtime 패키지를 설치하십시오. DisplayXR의 보고: %s"
+LOCAL5="DisplayXR이 이 프로그램을 3D로 표시할 수 없습니다. 데스크톱에 대한 선언을 할 수 없어서 프로그램이 두 시점을 좌우로 나란히 놓은 평면 화면으로 표시됩니다. 프로그램을 다시 시작하십시오. 반복되면 프로그램 자체의 로그에 더 자세한 내용이 있습니다. DisplayXR의 보고: %s"

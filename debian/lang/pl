@@ -1,0 +1,5 @@
+LOCAL1="DisplayXR nie może pokazać tego programu w 3D"
+LOCAL2="DisplayXR nie może pokazać tego programu w 3D: pulpit nie ogłasza deklaracji stereo, której DisplayXR potrzebuje, więc program jest pokazany jako dwa widoki obok siebie, płasko. Użyj Stereo KWin, pulpitu Sparky Stereo OS, i uruchom program ponownie. DisplayXR mówi: %s"
+LOCAL3="DisplayXR nie może pokazać tego programu w 3D: jego okno jest oknem, którego DisplayXR nie deklaruje pulpitowi, więc program jest pokazany jako dwa widoki obok siebie, płasko. Uruchom program tak, aby używał okna, które DisplayXR otwiera sam. DisplayXR mówi: %s"
+LOCAL4="DisplayXR nie może pokazać tego programu w 3D: ta wersja środowiska uruchomieniowego została zbudowana bez deklaracji Wayland, więc program jest pokazany jako dwa widoki obok siebie, płasko. Zainstaluj pakiet displayxr-runtime z Sparky Stereo OS. DisplayXR mówi: %s"
+LOCAL5="DisplayXR nie może pokazać tego programu w 3D: nie udało się złożyć deklaracji pulpitowi, więc program jest pokazany jako dwa widoki obok siebie, płasko. Uruchom program ponownie; jeśli się powtórzy, więcej mówi dziennik samego programu. DisplayXR mówi: %s"

@@ -1,0 +1,5 @@
+LOCAL1="DisplayXR cannot show this program in 3D"
+LOCAL2="DisplayXR cannot show this program in 3D: the desktop does not announce the stereo declaration DisplayXR needs, so the program is shown as its two views side by side, flat. Use Stereo KWin, the desktop of Sparky Stereo OS, and start the program again. DisplayXR says: %s"
+LOCAL3="DisplayXR cannot show this program in 3D: its window is one DisplayXR does not declare to the desktop, so the program is shown as its two views side by side, flat. Start the program so that it uses the window DisplayXR opens itself. DisplayXR says: %s"
+LOCAL4="DisplayXR cannot show this program in 3D: this build of the runtime was made without the Wayland declaration, so the program is shown as its two views side by side, flat. Install the displayxr-runtime package of Sparky Stereo OS. DisplayXR says: %s"
+LOCAL5="DisplayXR cannot show this program in 3D: the declaration to the desktop could not be made, so the program is shown as its two views side by side, flat. Start the program again; if it repeats, the program's own log tells more. DisplayXR says: %s"

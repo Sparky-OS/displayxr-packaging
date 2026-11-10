@@ -20,6 +20,12 @@ ifeq ($(DEB_HOST_ARCH),amd64)
 DASHBOARD_ENV := DXR_DASHBOARD_BIN=$(CURDIR)/$(DASHBOARD) DXR_REQUIRE_DASHBOARD=1
 endif
 
+# A window the runtime cannot declare to the desktop is told to the person through sparky-stereo-problems (the
+# engine is amd64 only, so on arm64 the reason stays in the log, which the build record says).
+ifeq ($(DEB_HOST_ARCH),amd64)
+SSP_FLAG := -DDXR_SPARKY_PROBLEMS=ON
+endif
+
 %:
 	dh $@ --buildsystem=cmake+ninja --builddirectory=$(B)
 
@@ -39,7 +45,8 @@ override_dh_auto_configure:
 		-DXRT_FEATURE_DEBUG_GUI=OFF \
 		-DXRT_FEATURE_WINDOW_PEEK=OFF \
 		-DXRT_HAVE_SDL2=OFF \
-		-DXRT_SIM_DISPLAY_FULL_SBS_ONLY=ON
+		-DXRT_SIM_DISPLAY_FULL_SBS_ONLY=ON \
+		$(SSP_FLAG)
 
 # DisplayXR's own test suite. Four tests fail the same way with the unpatched v2.66.3, built with these flags in a
 # Debian testing container (mkdtemp, the mirror calibration solve, the service orchestrator and the tracking host
@@ -74,6 +81,14 @@ override_dh_dwz:
 # the runtime library and the plug-ins are private to DisplayXR (/usr/lib/displayxr), loaded by path
 override_dh_makeshlibs:
 	dh_makeshlibs -X/usr/lib/displayxr
+
+# the problem's texts in the nine languages, as journal catalogs (journalctl -x), read by the engine
+ifeq ($(DEB_HOST_ARCH),amd64)
+execute_after_dh_install:
+	mkdir -p debian/displayxr-runtime/usr/lib/systemd/catalog
+	sparky-stereo-problems catalog displayxr-runtime debian/lang \
+		debian/displayxr-runtime/usr/lib/systemd/catalog --subject LOCAL1
+endif
 
 override_dh_missing:
 	dh_missing --fail-missing

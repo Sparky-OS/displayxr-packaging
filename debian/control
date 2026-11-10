@@ -23,6 +23,7 @@ Build-Depends:
  ninja-build,
  pkgconf,
  python3,
+ sparky-stereo-problems (>= 0.1.2) [amd64],
 Standards-Version: 4.7.2
 Homepage: https://sparkylinux.org
 Rules-Requires-Root: no
@@ -32,6 +33,7 @@ Architecture: amd64 arm64
 Depends:
  ${misc:Depends},
  ${shlibs:Depends},
+ sparky-stereo-problems (>= 0.1.2) [amd64],
 Recommends:
  displayxr-dashboard [amd64],
  displayxr-window-geometry-publisher-kwin | displayxr-window-geometry-publisher,
