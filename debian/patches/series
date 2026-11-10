@@ -7,3 +7,5 @@
 0007-cube-hosted-legacy-test-eye-colors.patch
 0008-sim-display-full-sbs-only-build.patch
 0009-vk-native-tell-the-person-when-not-declared.patch
+0010-vk-native-declared-sbs-takes-no-panel-rules.patch
+0011-vk-native-zones-in-every-view.patch

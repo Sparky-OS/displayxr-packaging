@@ -1,0 +1,133 @@
+From 85b32296fd22d92945f574b68bb9246b4983ba8c Mon Sep 17 00:00:00 2001
+From: Daniel Campos Ramos <Capitain_Jack@yahoo.com>
+Date: Tue, 10 Nov 2026 02:42:00 -0300
+Subject: [PATCH 10/11] fix(vk_native): a window declared full side by side takes
+ no part in the panel rules
+
+With the window-geometry publisher on the desktop (the compositor serves the window's
+position and the output it is on), a native Wayland window declared full side by side to
+a stereo compositor showed one view in both eyes, or its right end as the left view.
+Measured on Stereo KWin with the publisher, cube_handle_vk_linux with each view cleared
+to its eye's colour: the right eye red 0.288 and blue 0.622 (without the publisher: blue
+0.911). Two panel rules read the geometry the publisher gives:
+
+- SPAN_2D (#1654) paints the part of the window off the 3D panel flat 2D. It was given
+  the swapchain extent as the window's size, which a declared target holds once per view:
+  an 800 px window at x 560 on a 1920 px panel was read as 1600 px wide, so 240 px at the
+  right end of the right view was painted with the left view.
+- NOT_1TO1 (#1595) presents flat 2D, left view only, when the output the window is on is
+  not the size of the 3D panel the display processor reports; that panel is the adopted
+  monitor's, so any window on another monitor met it.
+
+A declared full side by side target is not woven: the display processor writes the two
+views as separate complete pictures and the compositor scales each over the window. There
+is no lens phase and no panel for it, so both rules are skipped for it
+(u_wl_target_follows_panel_rules). Without the publisher the geometry is unknown and both
+rules were already inert, which is why lane 34's proof passed.
+
+Test: tests_aux_wayland_geom pins the arithmetic of the first rule; the rig case
+(Stereo KWin 6.7.4-2+stereo3d54 with the publisher) is red with the runtime of the 58b
+package and green with this change, also with SIM_DISPLAY_PIXEL_W=1360
+SIM_DISPLAY_PIXEL_H=768 for the second rule.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+
+Origin: vendor, Sparky Stereo OS ORDER 58c
+Forwarded: not-needed
+Comment: Found with Stereo KWin's window-geometry publisher installed (the Recommends of this package): a declared
+ window showed one view in both eyes. Our fork branch order58c carries it with its test; the same rule belongs in the
+ upstream pull request of the full side by side output (DisplayXR #2576) when its maintainer takes that up.
+Last-Update: 2026-11-10
+---
+ src/xrt/auxiliary/util/u_wayland_geom.h       | 20 +++++++++++++++++++
+ .../vk_native/comp_vk_native_compositor.c     | 10 +++++++++-
+ tests/tests_aux_wayland_geom.cpp              | 17 ++++++++++++++++
+ 3 files changed, 46 insertions(+), 1 deletion(-)
+
+diff --git a/src/xrt/auxiliary/util/u_wayland_geom.h b/src/xrt/auxiliary/util/u_wayland_geom.h
+index 33dc5af89..53a25939c 100644
+--- a/src/xrt/auxiliary/util/u_wayland_geom.h
++++ b/src/xrt/auxiliary/util/u_wayland_geom.h
+@@ -498,6 +498,26 @@ u_wl_placement_quantum(double scale, double tol, uint32_t *out_q)
+ 	return true;
+ }
+ 
++/*!
++ * Does a target that holds @p views_across views side by side for each window
++ * width take part in the panel rules (the weave is only correct where the lens
++ * is, #1595 and #1654)?
++ *
++ * A window declared full side by side to a stereo compositor (views_across 2)
++ * is not woven: the display processor writes the two views as separate complete
++ * pictures, the compositor scales each over the window and its own outputs make
++ * the screen's format. There is no lens phase to keep and no panel to stay on,
++ * and the target is views_across windows wide, so its extent is not a window
++ * rectangle on any screen. Every panel rule is skipped for it.
++ *
++ * @ingroup aux_util
++ */
++static inline bool
++u_wl_target_follows_panel_rules(uint32_t views_across)
++{
++	return views_across <= 1;
++}
++
+ /*!
+  * The part of a window that is NOT on the 3D panel, as up to four bands
+  * (#1654).
+diff --git a/src/xrt/compositor/vk_native/comp_vk_native_compositor.c b/src/xrt/compositor/vk_native/comp_vk_native_compositor.c
+index 9a41ae145..52c59cd54 100644
+--- a/src/xrt/compositor/vk_native/comp_vk_native_compositor.c
++++ b/src/xrt/compositor/vk_native/comp_vk_native_compositor.c
+@@ -4299,6 +4299,11 @@ vk_composite_offpanel_2d(struct comp_vk_native_compositor *c,
+ 	if (enabled == 0 || !c->use_wayland || cmd == VK_NULL_HANDLE || target_image == VK_NULL_HANDLE) {
+ 		return;
+ 	}
++	// A declared full side by side target is views_across windows wide: its extent is not a window rectangle on
++	// the panel, and nothing in it is woven, so there is no off-panel band to paint flat.
++	if (!u_wl_target_follows_panel_rules(vk_output_views_across(c))) {
++		return;
++	}
+ 	// Where the window is, and how big the panel is. Both from the same
+ 	// metrics read the present origin uses, so the bands and the weave phase
+ 	// can never disagree.
+@@ -5735,7 +5740,10 @@ vk_linux_update_surface_not_1to1(struct comp_vk_native_compositor *c)
+ 	// one (XRT_DP_SCANOUT_FLAG_TOLERATES_RESAMPLE) is not degraded by them.
+ 	// (a) stays: off the panel, native Wayland has no segment to weave into.
+ 	const bool tolerant = c->display_processor != NULL && c->dp_tolerates_resample;
+-	const bool not_1to1 = !on_panel || (!tolerant && (!fits_window || !fits_surface));
++	// A window declared full side by side to a stereo compositor is not woven, so none of this applies: the
++	// compositor scales each view over the window and its outputs make the screen's format.
++	const bool not_1to1 = u_wl_target_follows_panel_rules(vk_output_views_across(c)) &&
++	                      (!on_panel || (!tolerant && (!fits_window || !fits_surface)));
+ 
+ 	if (not_1to1 == c->linux_surface_not_1to1) {
+ 		return;
+diff --git a/tests/tests_aux_wayland_geom.cpp b/tests/tests_aux_wayland_geom.cpp
+index 2fd0f5f54..f1d8be348 100644
+--- a/tests/tests_aux_wayland_geom.cpp
++++ b/tests/tests_aux_wayland_geom.cpp
+@@ -721,3 +721,20 @@ TEST_CASE("an unknown panel or window produces no bands, never a full-window one
+ 	REQUIRE(u_wl_offpanel_bands(0, 0, 0, 0, 1280, 720, b) == 0);
+ 	REQUIRE(u_wl_offpanel_bands(0, 0, kPanelModeW, kPanelModeH, 0, 0, b) == 0);
+ }
++
++TEST_CASE("a full side by side target takes no part in the panel rules")
++{
++	// One view per window width (a plain woven window): the panel rules apply.
++	REQUIRE(u_wl_target_follows_panel_rules(1));
++	// A window declared full side by side to a stereo compositor is two windows wide and not woven.
++	REQUIRE_FALSE(u_wl_target_follows_panel_rules(2));
++
++	// The case that showed it: an 800 px window at x 560 on a 1920 px panel. Its declared target is 1600 px
++	// wide, so measured as a window it ends at 2160 and 240 px of the right view would be painted flat.
++	struct u_wl_rect_px b[4] = {};
++	REQUIRE(u_wl_offpanel_bands(560, 344, 1920, 1080, 1600, 450, b) == 1);
++	REQUIRE(b[0].x == 1360);
++	REQUIRE(b[0].w == 240);
++	// Measured as the window it is (one view wide, what the compositor shows), it is entirely on the panel.
++	REQUIRE(u_wl_offpanel_bands(560, 344, 1920, 1080, 800, 450, b) == 0);
++}
+-- 
+2.53.0
+

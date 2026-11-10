@@ -1,3 +1,22 @@
+displayxr-runtime (2.66.3-1+stereo3d3) unstable; urgency=medium
+
+  * With the window-geometry publisher of Stereo KWin installed (a Recommends of
+    this package), a native Wayland window declared full side by side showed
+    one view in both eyes: the runtime's panel rules (the part of a window off
+    the 3D panel painted flat 2D, and flat 2D when the window is on another
+    monitor than the panel) read the declared target, twice the window wide, as
+    one window. A declared full side by side target takes no part in them
+    (Sparky Stereo OS ORDER 58c, patch 0010).
+  * Display zones and Local2D layers under the declared full side by side
+    output: each is laid once in every view, so the right eye is no longer
+    black, 3D zones show each view in its own picture and 2D content is the same
+    pixels in both; the zone rectangles keep the window's scale instead of half
+    of it (patch 0011). A layout that cannot be laid in every view (an authored
+    mask for the 2D content, 2D content under the 3D) is told to the person
+    through sparky-stereo-problems, key layout, in the nine languages.
+
+ -- Daniel Ramos (Capitain Jack) <Capitain_Jack@yahoo.com>  Tue, 10 Nov 2026 06:00:00 +0000
+
 displayxr-runtime (2.66.3-1+stereo3d2) unstable; urgency=medium
 
   * The reason the runtime cannot declare its window to the desktop (the

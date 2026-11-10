@@ -3,3 +3,4 @@ LOCAL2="DisplayXR 无法以 3D 显示此程序：桌面没有声明 DisplayXR �
 LOCAL3="DisplayXR 无法以 3D 显示此程序：它的窗口属于 DisplayXR 不向桌面声明的类型，因此程序显示为并排的两个视图，是平面的。请让程序使用 DisplayXR 自己打开的窗口来启动。 DisplayXR 报告：%s"
 LOCAL4="DisplayXR 无法以 3D 显示此程序：此运行时构建时没有 Wayland 声明，因此程序显示为并排的两个视图，是平面的。请安装 Sparky Stereo OS 的 displayxr-runtime 软件包。 DisplayXR 报告：%s"
 LOCAL5="DisplayXR 无法以 3D 显示此程序：无法向桌面做出声明，因此程序显示为并排的两个视图，是平面的。请重新启动该程序；若再次出现，程序自己的日志有更多信息。 DisplayXR 报告：%s"
+LOCAL6="DisplayXR 无法把此程序的 2D 内容放进其 3D 窗口的两幅画面中，因此其中一幅画面里的 2D 内容可能缺失或位置不对。请使用把 2D 内容作为普通矩形放在 3D 之上的程序版本。 DisplayXR 报告：%s"

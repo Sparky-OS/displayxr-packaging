@@ -1,0 +1,417 @@
+From 007a98ef059258ac9e7eaef82e9d68fb16946add Mon Sep 17 00:00:00 2001
+From: Daniel Campos Ramos <Capitain_Jack@yahoo.com>
+Date: Tue, 10 Nov 2026 02:42:07 -0300
+Subject: [PATCH 11/11] fix(vk_native): lay every zone and 2D layer in every view
+ of a window declared full side by side
+
+Display zones under the declared full side by side target (twice the window wide) showed
+the scene in the left picture only. Measured on Stereo KWin, cube_zones_vk_linux on a
+native Wayland window: left eye 82.6 percent of the pixels lit, right eye 0.000. Three
+places took the target for one window:
+
+- the Local2D flatten, the zone mask raster and the clip rectangles laid each 2D layer
+  and each zone rectangle once, in window pixels, which is the left half of the target.
+  They are now laid once in every view (flat content is the same pixels in each picture,
+  at the screen); the hardware wish keeps the window's own rectangles and width;
+- the zone rectangles were scaled into the tile by tile width over the target's width,
+  so a zone came out half as wide and half as far across (a squeezed cube in the left
+  eye). The renderer is now given the window's width;
+- a full-window zone covers the window's width, not the target's.
+
+A layout that cannot be laid in every view (an authored mask for the 2D content, which
+spans the whole target, and 2D content under the 3D, which is the display processor's
+backdrop) is kept as the person's problem "layout" through sparky-stereo-problems, once
+when the answer changes, and ended when it is laid again.
+
+Measured with the same app: both eyes lit (0.827 and 0.828), the 2D strip identical in
+both eyes (0 pixels differ), the 3D zones' cube disparity -4.4 and -1.5 px against -3.8
+and -2.2 px read from the app's own two views (the undeclared window), the left eye as
+before.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+
+Origin: vendor, Sparky Stereo OS ORDER 58c
+Forwarded: not-needed
+Comment: Display zones and Local2D layers under the declared full side by side output (our patches 0001 to 0003):
+ each is laid once in every view, at the screen; a layout that cannot be is told to the person through
+ sparky-stereo-problems (key "layout", message LOCAL6).
+Last-Update: 2026-11-10
+---
+ .../vk_native/comp_vk_native_compositor.c     | 139 ++++++++++++++----
+ .../vk_native/comp_vk_native_problems.c       |  46 ++++++
+ .../vk_native/comp_vk_native_problems.h       |  11 ++
+ 3 files changed, 166 insertions(+), 30 deletions(-)
+
+diff --git a/src/xrt/compositor/vk_native/comp_vk_native_compositor.c b/src/xrt/compositor/vk_native/comp_vk_native_compositor.c
+index 52c59cd54..f7ee2088f 100644
+--- a/src/xrt/compositor/vk_native/comp_vk_native_compositor.c
++++ b/src/xrt/compositor/vk_native/comp_vk_native_compositor.c
+@@ -664,6 +664,8 @@ struct comp_vk_native_compositor
+ 		const struct xrt_display_processor *read_dp;
+ 		uint32_t read_mode_index;
+ 		const char *refused;
++		//! A layout of 2D content that is not laid in every view was told to the person (the problem "layout").
++		bool layout_refused;
+ 	} full_sbs;
+ #if defined(XRT_HAVE_WAYLAND) && defined(DXR_HAVE_WL_STEREO)
+ 	//! The app surface's stereo declaration (NULL: the compositor takes none).
+@@ -4300,7 +4302,7 @@ vk_composite_offpanel_2d(struct comp_vk_native_compositor *c,
+ 		return;
+ 	}
+ 	// A declared full side by side target is views_across windows wide: its extent is not a window rectangle on
+-	// the panel, and nothing in it is woven, so there is no off-panel band to paint flat.
++	// the panel, and nothing in it is woven, so there is no off-panel band to paint flat (#2576).
+ 	if (!u_wl_target_follows_panel_rules(vk_output_views_across(c))) {
+ 		return;
+ 	}
+@@ -5741,7 +5743,7 @@ vk_linux_update_surface_not_1to1(struct comp_vk_native_compositor *c)
+ 	// (a) stays: off the panel, native Wayland has no segment to weave into.
+ 	const bool tolerant = c->display_processor != NULL && c->dp_tolerates_resample;
+ 	// A window declared full side by side to a stereo compositor is not woven, so none of this applies: the
+-	// compositor scales each view over the window and its outputs make the screen's format.
++	// compositor scales each view over the window and its outputs make the screen's format (#2576).
+ 	const bool not_1to1 = u_wl_target_follows_panel_rules(vk_output_views_across(c)) &&
+ 	                      (!on_panel || (!tolerant && (!fits_window || !fits_surface)));
+ 
+@@ -13198,8 +13200,10 @@ vk_compositor_layer_commit_locked(struct xrt_compositor *xc,
+ 			// so the projection-only capture point after it shows it).
+ 			comp_vk_native_renderer_set_cursor(c->renderer, &cursor_draw);
+ 		}
+-		xret = comp_vk_native_renderer_draw(
+-		    c->renderer, &c->layer_accum, &left_eye, &right_eye, tgt_width, tgt_height, &c->eff_layout);
++		// The renderer places a zone by its window-space rect scaled into the tile: the width it is given is
++		// the window's, which a declared full side by side target holds once per view.
++		xret = comp_vk_native_renderer_draw(c->renderer, &c->layer_accum, &left_eye, &right_eye,
++		                                    tgt_width / vk_output_views_across(c), tgt_height, &c->eff_layout);
+ 		if (xret != XRT_SUCCESS) {
+ 			U_LOG_E("Failed to render layers");
+ 			return xret;
+@@ -19064,13 +19068,15 @@ vk_local2d_begin_frame_once(struct comp_vk_native_compositor *c)
+ // (legacy hatch, or a bridge plane) keep the non-decoding view: bytes pass
+ // through exactly as before.
+ static void
+-vk_flatten_one_local2d_layer(struct comp_vk_native_compositor *c,
+-                             VkCommandBuffer cmd,
+-                             VkFramebuffer target_fb,
+-                             bool srgb_target,
+-                             struct comp_layer *layer,
+-                             uint32_t region_w,
+-                             uint32_t region_h)
++vk_flatten_one_local2d_layer_at(struct comp_vk_native_compositor *c,
++                                VkCommandBuffer cmd,
++                                VkFramebuffer target_fb,
++                                bool srgb_target,
++                                struct comp_layer *layer,
++                                uint32_t region_w,
++                                uint32_t region_h,
++                                int32_t shift_x,
++                                uint32_t view_w)
+ {
+ 	struct vk_bundle *vk = &c->vk;
+ 	struct xrt_swapchain *sc = layer->sc_array[0];
+@@ -19085,14 +19091,16 @@ vk_flatten_one_local2d_layer(struct comp_vk_native_compositor *c,
+ 		return;
+ 	}
+ 
++	// The layer's rect is in window pixels; shift_x moves it into the view of a declared full side by side
++	// target it is drawn in, and view_w keeps it inside that view.
+ 	const struct xrt_rect *dr = &layer->data.local_2d.rect;
+-	int32_t dx = dr->offset.w, dy = dr->offset.h, dw = dr->extent.w, dh = dr->extent.h;
++	int32_t dx = dr->offset.w + shift_x, dy = dr->offset.h, dw = dr->extent.w, dh = dr->extent.h;
+ 	if (dw <= 0 || dh <= 0) {
+ 		return;
+ 	}
+-	int32_t x0 = dx < 0 ? 0 : dx;
++	int32_t x0 = dx < shift_x ? shift_x : dx;
+ 	int32_t y0 = dy < 0 ? 0 : dy;
+-	int32_t x1 = (dx + dw) > (int32_t)region_w ? (int32_t)region_w : (dx + dw);
++	int32_t x1 = (dx + dw) > shift_x + (int32_t)view_w ? shift_x + (int32_t)view_w : (dx + dw);
+ 	int32_t y1 = (dy + dh) > (int32_t)region_h ? (int32_t)region_h : (dy + dh);
+ 	if (x1 <= x0 || y1 <= y0) {
+ 		return;
+@@ -19132,6 +19140,18 @@ vk_flatten_one_local2d_layer(struct comp_vk_native_compositor *c,
+ 	}
+ }
+ 
++static void
++vk_flatten_one_local2d_layer(struct comp_vk_native_compositor *c,
++                             VkCommandBuffer cmd,
++                             VkFramebuffer target_fb,
++                             bool srgb_target,
++                             struct comp_layer *layer,
++                             uint32_t region_w,
++                             uint32_t region_h)
++{
++	vk_flatten_one_local2d_layer_at(c, cmd, target_fb, srgb_target, layer, region_w, region_h, 0, region_w);
++}
++
+ #ifdef XRT_OS_WINDOWS
+ /*!
+  * #1795 / ADR-044 §7 — the HONEST flatten under the weave-on-scanout split.
+@@ -20476,11 +20496,17 @@ vk_composite_local_2d(struct comp_vk_native_compositor *c,
+ 		}
+ 	}
+ 
++	// A window declared full side by side to a stereo compositor presents its views side by side in a target
++	// views_across windows wide. Flat content is the same pixels in every view, at the screen: each 2D layer
++	// and each zone rectangle, which the app gives in window pixels, is laid once in every view (#2576).
++	const uint32_t views = vk_output_views_across(c);
++	const uint32_t view_w = region_w / views;
++
+ 	// Collect this frame's OVER Local2D layer rects (for the implicit mask) once
+ 	// — under-layers are the backdrop, not part of the overlay mask. In zones
+ 	// frames there is no under/over split (2D-under reserved in v1): every
+ 	// Local2D layer flattens as 2D-over.
+-	struct xrt_rect rects[XRT_MAX_LAYERS];
++	struct xrt_rect rects[XRT_MAX_LAYERS * 2];
+ 	uint32_t rect_count = 0;
+ 	for (uint32_t i = 0; i < c->layer_accum.layer_count && rect_count < XRT_MAX_LAYERS; i++) {
+ 		if (c->layer_accum.layers[i].data.type != XRT_LAYER_LOCAL_2D) {
+@@ -20491,6 +20517,42 @@ vk_composite_local_2d(struct comp_vk_native_compositor *c,
+ 		}
+ 		rects[rect_count++] = c->layer_accum.layers[i].data.local_2d.rect;
+ 	}
++	// The same rectangles again in every further view.
++	{
++		const uint32_t single = rect_count;
++		for (uint32_t v = 1; v < views; v++) {
++			for (uint32_t i = 0; i < single; i++) {
++				rects[rect_count] = rects[i];
++				rects[rect_count].offset.w += (int32_t)(v * view_w);
++				rect_count++;
++			}
++		}
++	}
++	// A layout of 2D content that cannot be laid in every view of a declared full side by side target is told to
++	// the person (an authored mask spans the whole target, and the 2D-under backdrop is the display processor's
++	// own), once when the answer changes, never per frame.
++	if (views > 1) {
++		const struct comp_vk_native_zone_mask *authored = c->active_zone_mask;
++		const char *why = NULL;
++		if (!zones_frame && authored != NULL && authored->submitted && authored->staged_view != VK_NULL_HANDLE) {
++			why = "the program authored its own mask for the 2D content";
++		}
++		for (uint32_t i = 0; why == NULL && !zones_frame && proj_idx >= 0 && i < (uint32_t)proj_idx; i++) {
++			if (c->layer_accum.layers[i].data.type == XRT_LAYER_LOCAL_2D) {
++				why = "the program places 2D content under the 3D";
++			}
++		}
++		if ((why != NULL) != c->full_sbs.layout_refused) {
++			c->full_sbs.layout_refused = why != NULL;
++			U_LOG_W("FULL_SBS: %s, which DisplayXR cannot lay in both pictures of a window declared full side by "
++			        "side%s",
++			        why != NULL ? why : "the layout of the 2D content", why != NULL ? "" : " (ended)");
++			comp_vk_native_problems_layout(why != NULL, why);
++		}
++	} else if (c->full_sbs.layout_refused) {
++		c->full_sbs.layout_refused = false;
++		comp_vk_native_problems_layout(false, NULL);
++	}
+ 	if (rect_count == 0 && !zones_frame) {
+ 		return false; // only under-layers (or stale flag) — nothing to overlay
+ 	}
+@@ -20510,7 +20572,8 @@ vk_composite_local_2d(struct comp_vk_native_compositor *c,
+ 				covers_region = false; // a feathered edge is not the identity
+ 				break;
+ 			}
+-			if (r.offset.w <= 0 && r.offset.h <= 0 && r.extent.w >= (int32_t)region_w &&
++			// In every view the zone covers the window's pixels, which is view_w wide.
++			if (r.offset.w <= 0 && r.offset.h <= 0 && r.extent.w >= (int32_t)view_w &&
+ 			    r.extent.h >= (int32_t)region_h) {
+ 				covers_region = true;
+ 			}
+@@ -20537,6 +20600,19 @@ vk_composite_local_2d(struct comp_vk_native_compositor *c,
+ 			zone_rects[zone_rect_count++] = c->layer_accum.layers[i].data.zone_3d.rect;
+ 		}
+ 	}
++	// What the composite rasters and clips by: every zone in every view. zone_rects stays the app's own list, in
++	// window pixels, which is what the hardware wish is about.
++	struct xrt_rect mask_zone_rects[XRT_MAX_LAYERS * 2];
++	float mask_zone_feathers[XRT_MAX_LAYERS * 2];
++	uint32_t mask_zone_count = 0;
++	for (uint32_t v = 0; v < views; v++) {
++		for (uint32_t i = 0; i < zone_rect_count; i++) {
++			mask_zone_rects[mask_zone_count] = zone_rects[i];
++			mask_zone_rects[mask_zone_count].offset.w += (int32_t)(v * view_w);
++			mask_zone_feathers[mask_zone_count] = zone_feathers[i];
++			mask_zone_count++;
++		}
++	}
+ 
+ 	// Resolve the `twod` source: flatten the Local2D layers into local2d_scratch.
+ 	// #1795 / ADR-044 §7: the flatten writes through the scratch's `_SRGB`
+@@ -20609,9 +20685,11 @@ vk_composite_local_2d(struct comp_vk_native_compositor *c,
+ 			if (!zones_frame && proj_idx >= 0 && (int32_t)i < proj_idx) {
+ 				continue;
+ 			}
+-			vk_flatten_one_local2d_layer(c, cmd, c->local2d_scratch_fb,
+-			                             c->local2d_scratch_srgb_view != VK_NULL_HANDLE, layer, region_w,
+-			                             region_h);
++			for (uint32_t v = 0; v < views; v++) {
++				vk_flatten_one_local2d_layer_at(c, cmd, c->local2d_scratch_fb,
++				                                c->local2d_scratch_srgb_view != VK_NULL_HANDLE, layer,
++				                                region_w, region_h, (int32_t)(v * view_w), view_w);
++			}
+ 		}
+ 		vk_cmd_image_barrier_locked(vk, cmd, c->local2d_scratch, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+ 		                            VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+@@ -20680,7 +20758,7 @@ vk_composite_local_2d(struct comp_vk_native_compositor *c,
+ 			                            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+ 			                            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, k_color_sub);
+ 			vk_local2d_composite_raster_mask(&c->local2d, vk, cmd, c->implicit_mask_fb, region_w, region_h,
+-			                                 0.0f, zone_rects, zone_rect_count, 1.0f);
++			                                 0.0f, mask_zone_rects, mask_zone_count, 1.0f);
+ 			vk_cmd_image_barrier_locked(vk, cmd, c->implicit_mask_tex, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+ 			                            VK_ACCESS_SHADER_READ_BIT,
+ 			                            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+@@ -20705,8 +20783,8 @@ vk_composite_local_2d(struct comp_vk_native_compositor *c,
+ 					    VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+ 					    k_color_sub);
+ 					vk_local2d_composite_raster_mask_zones(&c->local2d, vk, cmd, c->feather_mask_fb,
+-					                                       region_w, region_h, zone_rects, zone_feathers,
+-					                                       zone_rect_count);
++					                                       region_w, region_h, mask_zone_rects,
++					                                       mask_zone_feathers, mask_zone_count);
+ 					vk_cmd_image_barrier_locked(
+ 					    vk, cmd, c->feather_mask_tex, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+ 					    VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+@@ -20781,7 +20859,7 @@ vk_composite_local_2d(struct comp_vk_native_compositor *c,
+ 		// bump the generation only when something actually changed (or the
+ 		// source flipped explicit -> auto).
+ 		bool wish_dirty = c->zone_frame_wish_last != NULL || c->zone_wish_rect_count != zone_rect_count ||
+-		                  c->zone_wish_w != region_w || c->zone_wish_h != region_h;
++		                  c->zone_wish_w != view_w || c->zone_wish_h != region_h;
+ 		for (uint32_t i = 0; !wish_dirty && i < zone_rect_count; i++) {
+ 			if (memcmp(&c->zone_wish_rects[i], &zone_rects[i], sizeof(zone_rects[i])) != 0) {
+ 				wish_dirty = true;
+@@ -20793,8 +20871,9 @@ vk_composite_local_2d(struct comp_vk_native_compositor *c,
+ 			c->zone_wish_rect_count = zone_rect_count;
+ 			c->zone_publish_seq++;
+ 		}
++		// The wish is the window's: the first view_w columns of the raster, the same in every view.
+ 		c->zone_wish_view = c->implicit_mask_view;
+-		c->zone_wish_w = region_w;
++		c->zone_wish_w = view_w;
+ 		c->zone_wish_h = region_h;
+ 	} else if (emask != NULL && emask->submitted && emask->staged_view != VK_NULL_HANDLE) {
+ 		mask_view = emask->staged_view; // already SHADER_READ from submit
+@@ -20881,12 +20960,12 @@ vk_composite_local_2d(struct comp_vk_native_compositor *c,
+ 			// zone clippable at all: the leftover is a ring, not a box.
+ 			VkRect2D best = {{0, 0}, {0, 0}};
+ 			uint64_t best_area = 0;
+-			for (uint32_t i = 0; i < zone_rect_count; i++) {
+-				const int32_t f = (int32_t)zone_feathers[i];
+-				int32_t sx0 = zone_rects[i].offset.w + f;
+-				int32_t sy0 = zone_rects[i].offset.h + f;
+-				int32_t sx1 = zone_rects[i].offset.w + zone_rects[i].extent.w - f;
+-				int32_t sy1 = zone_rects[i].offset.h + zone_rects[i].extent.h - f;
++			for (uint32_t i = 0; i < mask_zone_count; i++) {
++				const int32_t f = (int32_t)mask_zone_feathers[i];
++				int32_t sx0 = mask_zone_rects[i].offset.w + f;
++				int32_t sy0 = mask_zone_rects[i].offset.h + f;
++				int32_t sx1 = mask_zone_rects[i].offset.w + mask_zone_rects[i].extent.w - f;
++				int32_t sy1 = mask_zone_rects[i].offset.h + mask_zone_rects[i].extent.h - f;
+ 				if (sx0 < 0) sx0 = 0;
+ 				if (sy0 < 0) sy0 = 0;
+ 				if (sx1 > (int32_t)region_w) sx1 = (int32_t)region_w;
+diff --git a/src/xrt/compositor/vk_native/comp_vk_native_problems.c b/src/xrt/compositor/vk_native/comp_vk_native_problems.c
+index 2087f56c1..aefc36d92 100644
+--- a/src/xrt/compositor/vk_native/comp_vk_native_problems.c
++++ b/src/xrt/compositor/vk_native/comp_vk_native_problems.c
+@@ -22,6 +22,7 @@
+ 
+ #define PACKAGE "displayxr-runtime"
+ #define KEY "declare"
++#define KEY_LAYOUT "layout"
+ 
+ typedef int (*keep_fn)(int, const char *, const char *, const char *, const char *const *, int, const char *);
+ typedef int (*clear_fn)(int, const char *, const char *);
+@@ -158,6 +159,44 @@ comp_vk_native_problems_declare(enum comp_vk_native_declare_problem kind, const
+ 	pthread_mutex_unlock(&lock);
+ }
+ 
++void
++comp_vk_native_problems_layout(bool unsupported, const char *detail)
++{
++	pthread_mutex_lock(&lock);
++	if (!unsupported) {
++		if (engine_open(true) && clear(SSP_PERSON, PACKAGE, KEY_LAYOUT) != 0) {
++			U_LOG_E("sparky-stereo-problems: the layout is laid in both pictures but the earlier problem could "
++			        "not be ended: %s",
++			        error_en());
++		}
++		pthread_mutex_unlock(&lock);
++		return;
++	}
++	if (!engine_open(false)) {
++		pthread_mutex_unlock(&lock);
++		return;
++	}
++	char text[1024];
++	char escaped[2048];
++	char details[3200];
++	snprintf(text, sizeof text,
++	         "DisplayXR cannot lay this program's 2D content in both pictures of its 3D window, so the 2D content "
++	         "can be missing or out of place in one of them. Use a version of the program that places its 2D "
++	         "content as ordinary rectangles over the 3D. DisplayXR says: %s",
++	         detail != NULL ? detail : "");
++	if (!json_string(escaped, sizeof escaped, text) ||
++	    snprintf(details, sizeof details, "{\"text_en\":\"%s\"}", escaped) >= (int)sizeof details) {
++		U_LOG_E("sparky-stereo-problems: the problem text does not fit");
++		pthread_mutex_unlock(&lock);
++		return;
++	}
++	const char *args[1] = {detail != NULL ? detail : ""};
++	if (keep(SSP_PERSON, PACKAGE, KEY_LAYOUT, "LOCAL6", args, 1, details) != 0) {
++		U_LOG_E("sparky-stereo-problems: the problem could not be kept: %s", error_en());
++	}
++	pthread_mutex_unlock(&lock);
++}
++
+ #else // !DXR_SPARKY_PROBLEMS
+ 
+ void
+@@ -167,4 +206,11 @@ comp_vk_native_problems_declare(enum comp_vk_native_declare_problem kind, const
+ 	(void)detail;
+ }
+ 
++void
++comp_vk_native_problems_layout(bool unsupported, const char *detail)
++{
++	(void)unsupported;
++	(void)detail;
++}
++
+ #endif
+diff --git a/src/xrt/compositor/vk_native/comp_vk_native_problems.h b/src/xrt/compositor/vk_native/comp_vk_native_problems.h
+index 9bf831294..f09e08764 100644
+--- a/src/xrt/compositor/vk_native/comp_vk_native_problems.h
++++ b/src/xrt/compositor/vk_native/comp_vk_native_problems.h
+@@ -22,6 +22,8 @@
+ 
+ #pragma once
+ 
++#include <stdbool.h>
++
+ #ifdef __cplusplus
+ extern "C" {
+ #endif
+@@ -51,6 +53,15 @@ enum comp_vk_native_declare_problem
+ void
+ comp_vk_native_problems_declare(enum comp_vk_native_declare_problem kind, const char *detail);
+ 
++/*!
++ * Keeps the problem that a layout of the program's 2D content cannot be laid in both pictures of a window declared
++ * full side by side (the person's problem, key "layout"; kept again it keeps its first time), or, with
++ * @p unsupported false, ends it. @p detail is the runtime's own English sentence. Called when the answer changes,
++ * never per frame.
++ */
++void
++comp_vk_native_problems_layout(bool unsupported, const char *detail);
++
+ #ifdef __cplusplus
+ }
+ #endif
+-- 
+2.53.0
+
