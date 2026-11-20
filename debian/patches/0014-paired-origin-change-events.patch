@@ -1,0 +1,371 @@
+Description: Notify OpenXR when the paired phone reference changes
+ Carry mapped capture time into the world reference-space events.
+ Retain a bounded previous-origin sample for queries before the change.
+ Invalidate old history when a new paired source reconnects.
+Author: Daniel Campos Ramos
+Origin: other, carried edition runtime adapter
+Forwarded: no, held for paired qualification and review
+Last-Update: 2026-11-20
+
+diff --git a/src/xrt/targets/common/target_builder_sim_display.c b/src/xrt/targets/common/target_builder_sim_display.c
+index 34db05691..51deabbdd 100644
+--- a/src/xrt/targets/common/target_builder_sim_display.c
++++ b/src/xrt/targets/common/target_builder_sim_display.c
+@@ -87,6 +87,7 @@ struct sim_display_builder
+ 	//! The rig composer bound as the head's pose source, or NULL.
+ 	struct xrt_device *rig_composer;
+ 	struct xrt_device *rdp_head;
++	struct xrt_session_event_sink *broadcast;
+ };
+ 
+ static xrt_result_t
+@@ -270,7 +271,7 @@ sim_display_open_system_impl(struct xrt_builder *xb,
+         struct sim_display_builder *sdb = (struct sim_display_builder *)xb;
+         if (!plugin || plugin->struct_size < offsetof(struct xrt_plugin_iface, set_pose_source) + sizeof(plugin->set_pose_source) || !plugin->set_pose_source)
+             return XRT_ERROR_DEVICE_CREATION_FAILED;
+-        sdb->rdp_head = t_rdp_head_create();
++        sdb->rdp_head = t_rdp_head_create(sdb->broadcast);
+         if (!sdb->rdp_head) {
+             U_LOG_E("StereoDroidVR: cannot open the local paired pose boundary");
+             return XRT_ERROR_DEVICE_CREATION_FAILED;
+@@ -280,6 +281,16 @@ sim_display_open_system_impl(struct xrt_builder *xb,
+ 	return XRT_SUCCESS;
+ }
+ 
++static xrt_result_t
++sim_display_open_system(struct xrt_builder *xb, cJSON *config, struct xrt_prober *xp,
++                        struct xrt_session_event_sink *broadcast,
++                        struct xrt_system_devices **out_xsysd, struct xrt_space_overseer **out_xso)
++{
++    struct sim_display_builder *sdb = (struct sim_display_builder *)xb;
++    sdb->broadcast = broadcast;
++    return u_builder_open_system_static_roles(xb, config, xp, broadcast, out_xsysd, out_xso);
++}
++
+ static void
+ sim_display_destroy(struct xrt_builder *xb)
+ {
+@@ -309,7 +320,7 @@ t_builder_sim_display_create(void)
+ 
+ 	// xrt_builder fields.
+ 	ub->base.estimate_system = sim_display_estimate_system;
+-	ub->base.open_system = u_builder_open_system_static_roles;
++	ub->base.open_system = sim_display_open_system;
+ 	ub->base.destroy = sim_display_destroy;
+ 	ub->base.identifier = "sim_display";
+ 	ub->base.name = "Simulated 3D Display";
+diff --git a/src/xrt/targets/common/target_rdp_head.c b/src/xrt/targets/common/target_rdp_head.c
+index 5e88fe143..c2b315464 100644
+--- a/src/xrt/targets/common/target_rdp_head.c
++++ b/src/xrt/targets/common/target_rdp_head.c
+@@ -3,6 +3,7 @@
+ // A same-user local boundary from KRdp's paired RDP session. No network listener.
+ #include "target_rdp_head.h"
+ #include "xrt/xrt_config_os.h"
++#include "xrt/xrt_session.h"
+ #include "os/os_threading.h"
+ #include "util/u_device.h"
+ #include "util/u_logging.h"
+@@ -28,6 +29,10 @@ struct rdp_head {
+     bool registered, valid;
+     uint64_t capture, origin;
+     struct xrt_quat orientation;
++    struct xrt_session_event_sink *broadcast;
++    bool reference_initialized, new_source, previous_valid;
++    int64_t reference_time, previous_reference_time, previous_capture;
++    struct xrt_quat previous_orientation;
+ };
+ static uint64_t get(const uint8_t *b, unsigned offset, unsigned width)
+ {
+@@ -63,6 +68,7 @@ static bool packet(struct rdp_head *d, const uint8_t *b, uint64_t now)
+         memcpy(d->ids, b + 8, 64);
+         d->registered = true;
+         d->valid = false;
++        d->new_source = true;
+         return true;
+     }
+     if (!d->registered || memcmp(d->ids, b + 8, 64)) return false;
+@@ -82,9 +88,46 @@ static bool packet(struct rdp_head *d, const uint8_t *b, uint64_t now)
+         norm += q[i] * q[i];
+     }
+     if (fabs(norm - 1.0) > 0.001) return false;
++    const uint64_t origin = get(b, 96, 8);
++    // The local wire uses BOOTTIME. XRT events and device queries use MONOTONIC.
++    // Capture has already been bounded around now; retain capture, not receipt.
++    const int64_t mono_now = os_monotonic_get_ns();
++    const uint64_t boot_now = boottime();
++    const int64_t capture_mono = mono_now + ((int64_t)capture - (int64_t)boot_now);
++    if (!d->reference_initialized || d->new_source || origin != d->origin) {
++        d->previous_valid = d->reference_initialized && d->capture != 0;
++        d->previous_orientation = d->orientation;
++        d->previous_capture = mono_now + ((int64_t)d->capture - (int64_t)boot_now);
++        d->previous_reference_time = d->reference_time;
++        d->reference_time = capture_mono;
++        if (d->reference_initialized) {
++            union xrt_session_event event = {0};
++            event.ref_change.event_type = XRT_SESSION_EVENT_REFERENCE_SPACE_CHANGE_PENDING;
++            event.ref_change.timestamp_ns = capture_mono;
++            // The protocol gives an origin serial, not a simultaneous old/new
++            // transform. Do not infer one from samples taken at different times.
++            event.ref_change.pose_valid = false;
++            event.ref_change.pose_in_previous_space = (struct xrt_pose)XRT_POSE_IDENTITY;
++            // This provider changes the shared tracking basis, so all three
++            // world reference spaces derived from it are affected.
++            const enum xrt_reference_space_type spaces[] = {
++                XRT_SPACE_REFERENCE_TYPE_LOCAL, XRT_SPACE_REFERENCE_TYPE_LOCAL_FLOOR,
++                XRT_SPACE_REFERENCE_TYPE_STAGE,
++            };
++            for (unsigned i = 0; i < sizeof(spaces) / sizeof(spaces[0]); ++i) {
++                event.ref_change.ref_type = spaces[i];
++                if (xrt_session_event_sink_push(d->broadcast, &event) != XRT_SUCCESS) {
++                    U_LOG_E("StereoDroidVR: cannot notify the reference-space change");
++                    return false;
++                }
++            }
++        }
++        d->reference_initialized = true;
++        d->new_source = false;
++    }
+     d->orientation = (struct xrt_quat){(float)q[0], (float)q[1], (float)q[2], (float)q[3]};
+     d->capture = capture;
+-    d->origin = get(b, 96, 8);
++    d->origin = origin;
+     d->valid = true;
+     return true;
+ }
+@@ -109,16 +152,21 @@ static void drain(struct rdp_head *d)
+ }
+ static xrt_result_t pose(struct xrt_device *xdev, enum xrt_input_name name, int64_t at, struct xrt_space_relation *out)
+ {
+-    (void)at; // No guessed angular velocity or receipt-time substitution.
+     struct rdp_head *d = (struct rdp_head *)xdev;
+     *out = (struct xrt_space_relation)XRT_SPACE_RELATION_ZERO;
+     out->pose.orientation.w = 1;
+     if (name != XRT_INPUT_GENERIC_HEAD_POSE) return XRT_ERROR_INPUT_UNSUPPORTED;
+     os_mutex_lock(&d->mutex);
+     drain(d);
+-    if (d->valid) {
++    if (d->valid && at >= d->reference_time) {
+         out->pose.orientation = d->orientation;
+         out->relation_flags = XRT_SPACE_RELATION_ORIENTATION_VALID_BIT | XRT_SPACE_RELATION_ORIENTATION_TRACKED_BIT;
++    } else if (d->valid && d->previous_valid && at >= d->previous_reference_time &&
++               at >= d->previous_capture && at < d->reference_time && at - d->previous_capture <= 100000000LL) {
++        // One bounded previous-origin sample covers in-flight queries. Older
++        // history is unavailable, never silently expressed in the new origin.
++        out->pose.orientation = d->previous_orientation;
++        out->relation_flags = XRT_SPACE_RELATION_ORIENTATION_VALID_BIT | XRT_SPACE_RELATION_ORIENTATION_TRACKED_BIT;
+     }
+     os_mutex_unlock(&d->mutex);
+     return XRT_SUCCESS;
+@@ -132,8 +180,9 @@ static void destroy(struct xrt_device *xdev)
+     os_mutex_destroy(&d->mutex);
+     u_device_free(xdev);
+ }
+-struct xrt_device *t_rdp_head_create(void)
++struct xrt_device *t_rdp_head_create(struct xrt_session_event_sink *broadcast)
+ {
++    if (!broadcast) return NULL;
+     const char *runtime = getenv("XDG_RUNTIME_DIR");
+     if (!runtime || !*runtime) return NULL;
+     char directory[108];
+@@ -144,6 +193,7 @@ struct xrt_device *t_rdp_head_create(void)
+     struct rdp_head *d = U_DEVICE_ALLOCATE(struct rdp_head, U_DEVICE_ALLOC_TRACKING_NONE, 1, 0);
+     if (!d) return NULL;
+     os_mutex_init(&d->mutex);
++    d->broadcast = broadcast;
+     d->listener = d->peer = -1;
+     d->base.name = XRT_DEVICE_GENERIC_HMD;
+     d->base.device_type = XRT_DEVICE_TYPE_HMD;
+@@ -167,5 +217,5 @@ struct xrt_device *t_rdp_head_create(void)
+     return &d->base;
+ }
+ #else
+-struct xrt_device *t_rdp_head_create(void) { return NULL; }
++struct xrt_device *t_rdp_head_create(struct xrt_session_event_sink *broadcast) { (void)broadcast; return NULL; }
+ #endif
+diff --git a/src/xrt/targets/common/target_rdp_head.h b/src/xrt/targets/common/target_rdp_head.h
+index aa27b0cf3..10fab48a1 100644
+--- a/src/xrt/targets/common/target_rdp_head.h
++++ b/src/xrt/targets/common/target_rdp_head.h
+@@ -2,4 +2,5 @@
+ // SPDX-License-Identifier: BSL-1.0
+ #pragma once
+ #include "xrt/xrt_device.h"
+-struct xrt_device *t_rdp_head_create(void);
++struct xrt_session_event_sink;
++struct xrt_device *t_rdp_head_create(struct xrt_session_event_sink *broadcast);
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 76b13da84..7383aedfc 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -467,6 +467,10 @@ if(TARGET aux_desktop)
+ 	list(APPEND tests tests_desktop_control)
+ endif()
+ 
++if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT ANDROID)
++	list(APPEND tests tests_rdp_head)
++endif()
++
+ foreach(testname ${tests})
+ 	add_executable(${testname} ${testname}.cpp)
+ 	target_link_libraries(${testname} PRIVATE xrt-external-catch2)
+@@ -475,6 +479,10 @@ foreach(testname ${tests})
+ endforeach()
+ 
+ # For tests that require more than just aux_util, link those other libs down here.
++if(TARGET tests_rdp_head)
++	target_sources(tests_rdp_head PRIVATE ${PROJECT_SOURCE_DIR}/src/xrt/targets/common/target_rdp_head.c)
++	target_include_directories(tests_rdp_head PRIVATE ${PROJECT_SOURCE_DIR}/src/xrt/targets/common)
++endif()
+ 
+ # ADR-061 arm 2: the compositor share tap's hook surface over util/u_share_link,
+ # compiled straight in (portable C) so the test does not need the compositor module.
+diff --git a/tests/tests_rdp_head.cpp b/tests/tests_rdp_head.cpp
+new file mode 100644
+index 000000000..eccb5ac46
+--- /dev/null
++++ b/tests/tests_rdp_head.cpp
+@@ -0,0 +1,143 @@
++// Copyright 2026 Daniel Campos Ramos
++// SPDX-License-Identifier: BSL-1.0
++#include "catch_amalgamated.hpp"
++extern "C" {
++#include "target_rdp_head.h"
++#include "xrt/xrt_session.h"
++#include "os/os_time.h"
++}
++#include <array>
++#include <cstring>
++#include <cstdlib>
++#include <string>
++#include <vector>
++#include <sys/socket.h>
++#include <sys/un.h>
++#include <unistd.h>
++#include <time.h>
++
++namespace {
++using Packet = std::array<uint8_t, 160>;
++void put(Packet &p, unsigned offset, uint64_t value, unsigned count)
++{
++    for (unsigned i = 0; i < count; ++i) p[offset + i] = uint8_t(value >> (8 * i));
++}
++uint64_t boot()
++{
++    timespec t{}; REQUIRE(clock_gettime(CLOCK_BOOTTIME, &t) == 0);
++    return uint64_t(t.tv_sec) * 1000000000ULL + uint64_t(t.tv_nsec);
++}
++struct EventSink {
++    xrt_session_event_sink base{};
++    std::vector<xrt_session_event_reference_space_change_pending> *events;
++};
++struct Fixture {
++    EventSink sink{};
++    std::vector<xrt_session_event_reference_space_change_pending> events;
++    xrt_device *device = nullptr;
++    int peer = -1;
++    char directory[64] = "/tmp/displayxr-rdp-head-XXXXXX";
++    std::string old_runtime;
++    bool had_runtime;
++    Fixture() : had_runtime(getenv("XDG_RUNTIME_DIR") != nullptr)
++    {
++        if (had_runtime) old_runtime = getenv("XDG_RUNTIME_DIR");
++        REQUIRE(mkdtemp(directory) != nullptr);
++        REQUIRE(setenv("XDG_RUNTIME_DIR", directory, 1) == 0);
++        sink.events = &events;
++        sink.base.push_event = [](xrt_session_event_sink *s, const union xrt_session_event *event) {
++            auto *sink = reinterpret_cast<EventSink *>(s);
++            sink->events->push_back(event->ref_change);
++            return XRT_SUCCESS;
++        };
++        device = t_rdp_head_create(&sink.base); REQUIRE(device != nullptr);
++        connect_peer();
++    }
++    ~Fixture()
++    {
++        if (peer >= 0) close(peer);
++        if (device) xrt_device_destroy(&device);
++        rmdir((std::string(directory) + "/stereodroidvr").c_str());
++        rmdir(directory);
++        if (had_runtime) setenv("XDG_RUNTIME_DIR", old_runtime.c_str(), 1);
++        else unsetenv("XDG_RUNTIME_DIR");
++    }
++    void connect_peer()
++    {
++        peer = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0); REQUIRE(peer >= 0);
++        sockaddr_un address{}; address.sun_family = AF_UNIX;
++        const auto path = std::string(directory) + "/stereodroidvr/pose";
++        std::memcpy(address.sun_path, path.c_str(), path.size() + 1);
++        REQUIRE(connect(peer, reinterpret_cast<sockaddr *>(&address), sizeof(address)) == 0);
++    }
++    Packet packet(unsigned kind, unsigned identity = 1)
++    {
++        Packet p{}; std::memcpy(p.data(), "SDVR", 4); put(p, 4, 1, 2); put(p, 6, kind, 2);
++        for (unsigned i = 8; i < 72; ++i) p[i] = uint8_t(identity);
++        return p;
++    }
++    void send_packet(const Packet &p) { REQUIRE(send(peer, p.data(), p.size(), MSG_NOSIGNAL) == ssize_t(p.size())); }
++    void send_pose(uint64_t capture, uint64_t origin, std::array<double, 4> q, unsigned identity = 1)
++    {
++        auto p = packet(1, identity); put(p, 72, capture, 8); put(p, 80, capture, 8);
++        put(p, 88, 1000000, 8); put(p, 96, origin, 8); put(p, 144, 1, 4);
++        for (unsigned i = 0; i < 4; ++i) { uint64_t bits; std::memcpy(&bits, &q[i], 8); put(p, 104 + 8 * i, bits, 8); }
++        send_packet(p);
++    }
++    xrt_space_relation locate(int64_t at = os_monotonic_get_ns())
++    {
++        xrt_space_relation result{};
++        REQUIRE(device->get_tracked_pose(device, XRT_INPUT_GENERIC_HEAD_POSE, at, &result) == XRT_SUCCESS);
++        return result;
++    }
++};
++}
++
++TEST_CASE("Paired recenter notifies the world reference spaces at capture time", "[rdp-head]")
++{
++    Fixture f;
++    f.send_packet(f.packet(0));
++    const auto first_capture = boot() - 3000000;
++    f.send_pose(first_capture, 1, {0, .5, 0, .8660254037844386});
++    REQUIRE(f.locate().relation_flags != 0);
++    REQUIRE(f.events.empty());
++    f.send_packet(f.packet(2));
++    REQUIRE(f.locate().relation_flags == 0);
++    const auto second_capture = boot() - 1000000;
++    f.send_pose(second_capture, 2, {0, 0, 0, 1});
++    REQUIRE(f.locate().pose.orientation.w == 1.f);
++    REQUIRE(f.events.size() == 3);
++    const auto change = f.events[0].timestamp_ns;
++    const auto expected = os_monotonic_get_ns() + (int64_t(second_capture) - int64_t(boot()));
++    REQUIRE(std::llabs(change - expected) < 1000000);
++    const xrt_reference_space_type spaces[] = {XRT_SPACE_REFERENCE_TYPE_LOCAL, XRT_SPACE_REFERENCE_TYPE_LOCAL_FLOOR, XRT_SPACE_REFERENCE_TYPE_STAGE};
++    for (unsigned i = 0; i < 3; ++i) {
++        REQUIRE(f.events[i].event_type == XRT_SESSION_EVENT_REFERENCE_SPACE_CHANGE_PENDING);
++        REQUIRE(f.events[i].ref_type == spaces[i]);
++        REQUIRE(f.events[i].timestamp_ns == change);
++        REQUIRE_FALSE(f.events[i].pose_valid);
++    }
++    const auto before = f.locate(change - 1);
++    REQUIRE(before.relation_flags != 0);
++    REQUIRE(before.pose.orientation.y == .5f);
++    REQUIRE(f.locate(change).pose.orientation.y == 0.f);
++    REQUIRE(f.locate(change).pose.orientation.w == 1.f);
++    REQUIRE(f.locate(change - 200000000).relation_flags == 0);
++    f.send_pose(boot(), 2, {0, 0, 0, 1});
++    f.locate(); REQUIRE(f.events.size() == 3);
++    usleep(110000);
++    REQUIRE(f.locate().relation_flags == 0);
++}
++
++TEST_CASE("A new paired source invalidates history even when its origin serial repeats", "[rdp-head]")
++{
++    Fixture f;
++    f.send_packet(f.packet(0)); f.send_pose(boot(), 1, {0, 0, 0, 1});
++    REQUIRE(f.locate().relation_flags != 0);
++    close(f.peer); f.peer = -1;
++    REQUIRE(f.locate().relation_flags == 0);
++    f.connect_peer(); f.send_packet(f.packet(0, 2)); f.send_pose(boot(), 1, {0, .5, 0, .8660254037844386}, 2);
++    REQUIRE(f.locate().relation_flags != 0);
++    REQUIRE(f.events.size() == 3);
++    REQUIRE(f.locate(f.events[0].timestamp_ns - 1).relation_flags == 0);
++}
