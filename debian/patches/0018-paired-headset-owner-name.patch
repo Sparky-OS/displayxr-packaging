@@ -1,0 +1,78 @@
+Description: Name the live paired-headset owner in its person-facing problem
+ Read the same-user peer process name at refusal, retaining the PID in data.
+ Keep the PID-only explanation when the name cannot be read.
+Author: Daniel Campos Ramos
+Forwarded: not-needed, local paired headset provider
+
+diff --git a/src/xrt/targets/common/target_rdp_head.c b/src/xrt/targets/common/target_rdp_head.c
+index adfa98383..31ccf7710 100644
+--- a/src/xrt/targets/common/target_rdp_head.c
++++ b/src/xrt/targets/common/target_rdp_head.c
+@@ -10,6 +10,7 @@
+ #include "os/os_threading.h"
+ #include "util/u_device.h"
+ #include "util/u_logging.h"
++#include "util/u_json.h"
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
+@@ -32,10 +33,11 @@
+ extern char **environ;
+ static void headset_problem(int owner_socket)
+ {
+-    char owner[32], details[512];
++    char owner[32], program[256] = {0}, text[512];
++    char *details = NULL;
+     char *clear_args[] = {"sparky-stereo-problems", "clear", "--person", "displayxr-runtime", "paired-headset-in-use", NULL};
+-    char *keep_args[] = {"sparky-stereo-problems", "keep", "--person", "--details", details,
+-                        "displayxr-runtime", "paired-headset-in-use", "LOCAL8", owner, NULL};
++    char *keep_args[] = {"sparky-stereo-problems", "keep", "--person", "--details", NULL,
++                        "displayxr-runtime", "paired-headset-in-use", "LOCAL8", owner, NULL, NULL};
+     char **args = clear_args;
+     if (owner_socket >= 0) {
+         struct ucred credentials = {0};
+@@ -46,13 +48,41 @@ static void headset_problem(int owner_socket)
+             return;
+         }
+         snprintf(owner, sizeof(owner), "%ld", (long)credentials.pid);
+-        snprintf(details, sizeof(details),
+-                 "{\"text_en\":\"The headset is already in use by process %s. Close that program's headset session and try again.\","
+-                 "\"data\":{\"owner_pid\":%ld,\"owner_uid\":%ld}}", owner, (long)credentials.pid, (long)credentials.uid);
++        char path[64];
++        snprintf(path, sizeof(path), "/proc/%s/comm", owner);
++        FILE *file = fopen(path, "re");
++        if (file != NULL) {
++            size_t size = fread(program, 1, sizeof(program) - 1, file);
++            if (ferror(file) || !feof(file)) program[0] = '\0';
++            else if (size && program[size - 1] == '\n') program[size - 1] = '\0';
++            fclose(file);
++        }
++        if (program[0]) {
++            keep_args[7] = "LOCAL9";
++            keep_args[8] = program;
++            keep_args[9] = owner;
++            snprintf(text, sizeof(text), "The headset is already in use by %s (process %s). Close that program's headset session and try again.", program, owner);
++        } else {
++            snprintf(text, sizeof(text), "The headset is already in use by process %s. Close that program's headset session and try again.", owner);
++        }
++        cJSON *record = cJSON_CreateObject();
++        cJSON *data = record ? cJSON_AddObjectToObject(record, "data") : NULL;
++        bool ready = data && cJSON_AddNumberToObject(data, "owner_pid", credentials.pid) &&
++                     cJSON_AddNumberToObject(data, "owner_uid", credentials.uid) &&
++                     (!program[0] || cJSON_AddStringToObject(data, "owner_name", program)) &&
++                     cJSON_AddStringToObject(record, "text_en", text);
++        if (ready) details = cJSON_PrintUnformatted(record);
++        cJSON_Delete(record);
++        if (details == NULL) {
++            U_LOG_E("StereoDroidVR: cannot prepare the headset owner problem for the failure engine");
++            return;
++        }
++        keep_args[4] = details;
+         args = keep_args;
+     }
+     pid_t child;
+     int error = posix_spawn(&child, "/usr/bin/sparky-stereo-problems", NULL, NULL, args, environ);
++    cJSON_free(details);
+     if (error != 0) {
+         U_LOG_E("StereoDroidVR: cannot %s headset problem through sparky-stereo-problems: %s",
+                 owner_socket >= 0 ? "keep" : "clear", strerror(error));

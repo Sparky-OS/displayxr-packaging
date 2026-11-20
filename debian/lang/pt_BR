@@ -6,3 +6,4 @@ LOCAL5="O DisplayXR não consegue mostrar este programa em 3D: não foi possíve
 LOCAL6="O DisplayXR não consegue posicionar o conteúdo 2D deste programa nas duas imagens da sua janela 3D; por isso ele pode faltar ou ficar fora do lugar em uma delas. Use uma versão do programa que coloque o conteúdo 2D como retângulos comuns sobre o 3D. O DisplayXR diz: %s"
 LOCAL7="O visor já está em uso"
 LOCAL8="O visor já está em uso pelo processo %s. Feche a sessão do visor nesse programa e tente de novo."
+LOCAL9="O visor já está em uso por %s (processo %s). Feche a sessão do visor nesse programa e tente de novo."

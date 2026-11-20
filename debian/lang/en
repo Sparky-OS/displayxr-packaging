@@ -6,3 +6,4 @@ LOCAL5="DisplayXR cannot show this program in 3D: the declaration to the desktop
 LOCAL6="DisplayXR cannot lay this program's 2D content in both pictures of its 3D window, so the 2D content can be missing or out of place in one of them. Use a version of the program that places its 2D content as ordinary rectangles over the 3D. DisplayXR says: %s"
 LOCAL7="Headset already in use"
 LOCAL8="The headset is already in use by process %s. Close that program's headset session and try again."
+LOCAL9="The headset is already in use by %s (process %s). Close that program's headset session and try again."

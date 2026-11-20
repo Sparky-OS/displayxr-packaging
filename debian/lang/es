@@ -8,3 +8,4 @@ LOCAL6="DisplayXR cannot lay this program's 2D content in both pictures of its 3
 # LOCAL7 and LOCAL8: translation pending; English source text.
 LOCAL7="Headset already in use"
 LOCAL8="The headset is already in use by process %s. Close that program's headset session and try again."
+LOCAL9="The headset is already in use by %s (process %s). Close that program's headset session and try again."

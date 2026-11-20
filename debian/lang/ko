@@ -7,3 +7,4 @@ LOCAL6="DisplayXR가 이 프로그램의 2D 콘텐츠를 3D 창의 두 이미지
 # LOCAL7 and LOCAL8: translation pending; English source text.
 LOCAL7="Headset already in use"
 LOCAL8="The headset is already in use by process %s. Close that program's headset session and try again."
+LOCAL9="The headset is already in use by %s (process %s). Close that program's headset session and try again."
