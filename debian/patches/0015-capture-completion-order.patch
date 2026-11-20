@@ -1,0 +1,102 @@
+Description: Finish capture state before delivering its completion
+ The completion callback may submit another capture on the same controller.
+ Clear the in-flight flag under its mutex before success and failure notifications.
+ Keep the new request in flight; cover both paths with synchronous callback submission.
+Author: Daniel Campos Ramos
+Forwarded: no, to be offered to DisplayXR after their open pull request settles
+Last-Update: 2026-11-20
+
+diff --git a/src/xrt/auxiliary/desktop/u_desktop_control.c b/src/xrt/auxiliary/desktop/u_desktop_control.c
+index ab458f99c..7825c64b6 100644
+--- a/src/xrt/auxiliary/desktop/u_desktop_control.c
++++ b/src/xrt/auxiliary/desktop/u_desktop_control.c
+@@ -3706,6 +3706,7 @@ run_capture(struct u_desktop_control *c, const struct u_desktop_capture_info *in
+ 	free(ws);
+ 	os_mutex_lock(&c->mutex);
+ 	bool stop = c->stop;
++	c->cap_in_flight = false;
+ 	os_mutex_unlock(&c->mutex);
+ 	if (!stop && c->cb.capture_completed != NULL) {
+ 		c->cb.capture_completed(c->cb.ctx, &d);
+@@ -3722,6 +3723,7 @@ done:
+ 	audit_capture_fail(c, info, have_win ? &win : NULL, result, msg);
+ 	os_mutex_lock(&c->mutex);
+ 	bool stopped = c->stop;
++	c->cap_in_flight = false;
+ 	os_mutex_unlock(&c->mutex);
+ 	if (!stopped && c->cb.capture_completed != NULL) {
+ 		struct u_desktop_capture_done d = {id, result, 0, 0, src, 0, msg};
+@@ -3760,7 +3762,6 @@ capture_worker(void *ptr)
+ 				os_mutex_unlock(&c->mutex);
+ 				run_capture(c, &job, id);
+ 				os_mutex_lock(&c->mutex);
+-				c->cap_in_flight = false;
+ 				continue;
+ 			}
+ 			wake = due;
+diff --git a/tests/tests_desktop_control.cpp b/tests/tests_desktop_control.cpp
+index b0780763b..b55825d3f 100644
+--- a/tests/tests_desktop_control.cpp
++++ b/tests/tests_desktop_control.cpp
+@@ -2806,6 +2806,61 @@ fast_capture_timing(Harness &h)
+ 
+ } // namespace
+ 
++TEST_CASE("capture_completion: the notification can submit the next capture", "[desktop][capture][completion]")
++{
++	TempDir dir;
++	struct ReentrantRecorder
++	{
++		u_desktop_control *c = nullptr;
++		u_desktop_capture_info next = cap_desktop(64, 64);
++		std::mutex mutex;
++		std::condition_variable cv;
++		std::vector<int32_t> results;
++		int32_t submitted = U_DESKTOP_XR_ERROR_RUNTIME_FAILURE;
++		uint64_t next_id = 0;
++
++		~ReentrantRecorder() { u_desktop_control_destroy(&c); }
++
++		static void completed(void *ctx, const u_desktop_capture_done *done)
++		{
++			auto *r = static_cast<ReentrantRecorder *>(ctx);
++			std::lock_guard<std::mutex> lock(r->mutex);
++			r->results.push_back(done->result);
++			if (r->results.size() == 1) {
++				r->submitted = u_desktop_control_capture(r->c, &r->next, &r->next_id);
++			}
++			r->cv.notify_all();
++		}
++	} rec;
++
++	auto *backend = u_desktop_fake_create();
++	u_desktop_app_info app = {kExe, "agent-app", nullptr, nullptr};
++	u_desktop_control_callbacks cb = {};
++	cb.ctx = &rec;
++	cb.capture_completed = ReentrantRecorder::completed;
++	REQUIRE(u_desktop_control_create(backend, &app, &cb, nullptr, &rec.c) == 0);
++	REQUIRE(u_desktop_control_request_scopes(rec.c, "tests", U_DESKTOP_SCOPE_CAPTURE) == U_DESKTOP_XR_SUCCESS);
++	REQUIRE(u_desktop_control_get_capture_state(rec.c) == U_DESKTOP_STATE_GRANTED);
++
++	auto first = cap_desktop(64, 64);
++	int32_t expected = U_DESKTOP_XR_SUCCESS;
++	SECTION("successful completion") {}
++	SECTION("failed completion")
++	{
++		first = cap_region(-5000, -5000, 10, 10, 64, 64);
++		expected = U_DESKTOP_XR_ERROR_REFUSED;
++	}
++	uint64_t first_id = 0;
++	REQUIRE(u_desktop_control_capture(rec.c, &first, &first_id) == U_DESKTOP_XR_SUCCESS);
++	std::unique_lock<std::mutex> lock(rec.mutex);
++	REQUIRE(rec.cv.wait_for(lock, 5000ms, [&] { return !rec.results.empty(); }));
++	CHECK(rec.results[0] == expected);
++	REQUIRE(rec.submitted == U_DESKTOP_XR_SUCCESS);
++	CHECK(rec.next_id > first_id);
++	REQUIRE(rec.cv.wait_for(lock, 5000ms, [&] { return rec.results.size() == 2; }));
++	CHECK(rec.results[1] == U_DESKTOP_XR_SUCCESS);
++}
++
+ TEST_CASE("capture_helpers: fit never scales up and keeps the aspect ratio", "[desktop][capture]")
+ {
+ 	uint32_t w = 0, h = 0;

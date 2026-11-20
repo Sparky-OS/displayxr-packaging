@@ -12,3 +12,4 @@
 0012-paired-phone-orientation-and-accepted-input.patch
 0013-attach-stress-reader-before-writer.patch
 0014-paired-origin-change-events.patch
+0015-capture-completion-order.patch
