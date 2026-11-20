@@ -1,0 +1,30 @@
+Description: Attach the stress reader before the producer can wrap its ring
+ The first drain starts at the oldest retained sample and does not count earlier overwrites.
+ Starting the writer first lets it wrap before that drain, invalidating the total-count precondition.
+ Attach on the empty page before starting the writer; retain every assertion and the reader contract.
+Author: Daniel Campos Ramos
+Forwarded: no, to be offered to DisplayXR after their open pull request settles
+Last-Update: 2026-11-20
+
+--- a/tests/tests_viewer_pose_page.cpp
++++ b/tests/tests_viewer_pose_page.cpp
+@@ -328,6 +328,10 @@
+ 	std::atomic<bool> done{false};
+ 	const uint64_t total = 200000;
+ 
++	u_vpp_reader r = {};
++	std::vector<xrt_tracking_viewer_sample> out(U_VPP_RING_SIZE);
++	(void)u_vpp_read_new(p.mem, &r, out.data(), U_VPP_RING_SIZE);
++
+ 	std::thread writer([&] {
+ 		u_vpp_producer prod = {};
+ 		u_vpp_producer_begin(&prod, p.mem);
+@@ -340,8 +344,6 @@
+ 
+ 	uint64_t got = 0, bad = 0, out_of_order = 0;
+ 	float last = 0.0f;
+-	u_vpp_reader r = {};
+-	std::vector<xrt_tracking_viewer_sample> out(U_VPP_RING_SIZE);
+ 	for (;;) {
+ 		const bool finished = done.load();
+ 		const uint32_t n = u_vpp_read_new(p.mem, &r, out.data(), U_VPP_RING_SIZE);
