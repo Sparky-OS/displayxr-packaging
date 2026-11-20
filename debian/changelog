@@ -1,3 +1,11 @@
+displayxr-runtime (2.66.3-1+stereo3d4) unstable; urgency=medium
+
+  * Preserve the accepted display, depth and gamepad work.
+  * Receive authorized Android head orientation from the paired RDP session.
+    Invalidate stale, revoked and disconnected sources without a static pose.
+
+ -- Daniel Ramos (Capitain Jack) <Capitain_Jack@yahoo.com>  Fri, 20 Nov 2026 09:35:24 +0000
+
 displayxr-runtime (2.66.3-1+stereo3d3) unstable; urgency=medium
 
   * With the window-geometry publisher of Stereo KWin installed (a Recommends of
