@@ -87,7 +87,7 @@ ifeq ($(DEB_HOST_ARCH),amd64)
 execute_after_dh_install:
 	mkdir -p debian/displayxr-runtime/usr/lib/systemd/catalog
 	sparky-stereo-problems catalog displayxr-runtime debian/lang \
-		debian/displayxr-runtime/usr/lib/systemd/catalog --subject LOCAL1
+		debian/displayxr-runtime/usr/lib/systemd/catalog --subject LOCAL1 --subject LOCAL7=LOCAL7,LOCAL8
 endif
 
 override_dh_missing:

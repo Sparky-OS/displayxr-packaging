@@ -1,0 +1,99 @@
+Description: Report the live paired-headset owner through the edition failure engine
+ Keep the OpenXR result unchanged and the first runtime undisturbed.
+ Store the peer process and English reason in the person-scoped problem;
+ clear it when a later runtime successfully acquires the headset.
+Author: Daniel Campos Ramos
+Forwarded: not-needed, local paired headset provider
+
+diff --git a/src/xrt/targets/common/target_rdp_head.c b/src/xrt/targets/common/target_rdp_head.c
+index 9363a84b2..adfa98383 100644
+--- a/src/xrt/targets/common/target_rdp_head.c
++++ b/src/xrt/targets/common/target_rdp_head.c
+@@ -1,6 +1,9 @@
+ // Copyright 2026 Daniel Campos Ramos
+ // SPDX-License-Identifier: BSL-1.0
+ // A same-user local boundary from KRdp's paired RDP session. No network listener.
++#ifndef _GNU_SOURCE
++#define _GNU_SOURCE
++#endif
+ #include "target_rdp_head.h"
+ #include "xrt/xrt_config_os.h"
+ #include "xrt/xrt_session.h"
+@@ -14,6 +17,8 @@
+ #include <errno.h>
+ #include <fcntl.h>
+ #include <sys/file.h>
++#include <spawn.h>
++#include <sys/wait.h>
+ #include <math.h>
+ #include <stdint.h>
+ #include <sys/socket.h>
+@@ -22,6 +27,45 @@
+ #include <time.h>
+ #include <unistd.h>
+ 
++// The edition's engine owns storage, translations and desktop notification.
++// Pass literal argv, never a shell command; no caller or owner text is executed.
++extern char **environ;
++static void headset_problem(int owner_socket)
++{
++    char owner[32], details[512];
++    char *clear_args[] = {"sparky-stereo-problems", "clear", "--person", "displayxr-runtime", "paired-headset-in-use", NULL};
++    char *keep_args[] = {"sparky-stereo-problems", "keep", "--person", "--details", details,
++                        "displayxr-runtime", "paired-headset-in-use", "LOCAL8", owner, NULL};
++    char **args = clear_args;
++    if (owner_socket >= 0) {
++        struct ucred credentials = {0};
++        socklen_t length = sizeof(credentials);
++        if (getsockopt(owner_socket, SOL_SOCKET, SO_PEERCRED, &credentials, &length) != 0 ||
++            length != sizeof(credentials) || credentials.pid <= 0 || credentials.uid != geteuid()) {
++            U_LOG_E("StereoDroidVR: cannot identify the live headset owner for the failure engine");
++            return;
++        }
++        snprintf(owner, sizeof(owner), "%ld", (long)credentials.pid);
++        snprintf(details, sizeof(details),
++                 "{\"text_en\":\"The headset is already in use by process %s. Close that program's headset session and try again.\","
++                 "\"data\":{\"owner_pid\":%ld,\"owner_uid\":%ld}}", owner, (long)credentials.pid, (long)credentials.uid);
++        args = keep_args;
++    }
++    pid_t child;
++    int error = posix_spawn(&child, "/usr/bin/sparky-stereo-problems", NULL, NULL, args, environ);
++    if (error != 0) {
++        U_LOG_E("StereoDroidVR: cannot %s headset problem through sparky-stereo-problems: %s",
++                owner_socket >= 0 ? "keep" : "clear", strerror(error));
++        return;
++    }
++    int status = 0;
++    pid_t result;
++    do { result = waitpid(child, &status, 0); } while (result < 0 && errno == EINTR);
++    if (result < 0 || !WIFEXITED(status) || WEXITSTATUS(status) != 0)
++        U_LOG_E("StereoDroidVR: sparky-stereo-problems failed to %s the headset problem",
++                owner_socket >= 0 ? "keep" : "clear");
++}
++
+ struct rdp_head {
+     struct xrt_device base;
+     struct os_mutex mutex;
+@@ -253,11 +297,13 @@ struct xrt_device *t_rdp_head_create(struct xrt_session_event_sink *broadcast)
+         }
+         int connected = connect(probe, (struct sockaddr *)&address, sizeof(address));
+         int error = errno;
+-        close(probe);
+         if (connected == 0 || error == EAGAIN || error == EINPROGRESS) {
+             U_LOG_E("StereoDroidVR: another runtime of this user owns the headset; left untouched");
++            headset_problem(probe);
++            close(probe);
+             goto fail;
+         }
++        close(probe);
+         if (error != ECONNREFUSED) {
+             U_LOG_E("StereoDroidVR: cannot establish that headset socket is stale: %s; left untouched", strerror(error));
+             goto fail;
+@@ -284,6 +330,7 @@ struct xrt_device *t_rdp_head_create(struct xrt_session_event_sink *broadcast)
+         U_LOG_E("StereoDroidVR: cannot listen on headset socket: %s", strerror(errno));
+         close(guard); destroy(&d->base); return NULL;
+     }
++    headset_problem(-1);
+     close(guard);
+     U_LOG_W("StereoDroidVR: awaiting a paired KRdp source; no pose is valid yet");
+     return &d->base;
