@@ -1,0 +1,219 @@
+Description: Recover a stale paired headset socket without displacing an owner
+ Probe an occupied same-user socket and replace it only after connection refusal.
+ Serialize startup and retain socket identity for safe clean shutdown.
+ Report live owners, foreign owners and non-socket paths explicitly.
+Author: Daniel Campos Ramos
+Forwarded: not-needed, local paired headset provider
+Last-Update: 2026-11-20
+
+diff --git a/src/xrt/targets/common/target_rdp_head.c b/src/xrt/targets/common/target_rdp_head.c
+index c2b315464..9363a84b2 100644
+--- a/src/xrt/targets/common/target_rdp_head.c
++++ b/src/xrt/targets/common/target_rdp_head.c
+@@ -12,6 +12,8 @@
+ #include <string.h>
+ #if defined(XRT_OS_LINUX_DESKTOP)
+ #include <errno.h>
++#include <fcntl.h>
++#include <sys/file.h>
+ #include <math.h>
+ #include <stdint.h>
+ #include <sys/socket.h>
+@@ -25,6 +27,8 @@ struct rdp_head {
+     struct os_mutex mutex;
+     int listener, peer;
+     char path[108];
++    dev_t socket_device;
++    ino_t socket_inode;
+     uint8_t ids[64];
+     bool registered, valid;
+     uint64_t capture, origin;
+@@ -176,7 +180,14 @@ static void destroy(struct xrt_device *xdev)
+ {
+     struct rdp_head *d = (struct rdp_head *)xdev;
+     disconnect_peer(d);
+-    if (d->listener >= 0) { close(d->listener); unlink(d->path); }
++    if (d->listener >= 0) {
++        struct stat info;
++        // Never remove a replacement at our old pathname during shutdown.
++        if (lstat(d->path, &info) == 0 && S_ISSOCK(info.st_mode) && info.st_uid == geteuid() &&
++            info.st_dev == d->socket_device && info.st_ino == d->socket_inode && unlink(d->path) != 0)
++            U_LOG_E("StereoDroidVR: cannot remove own headset socket at shutdown: %s", strerror(errno));
++        close(d->listener);
++    }
+     os_mutex_destroy(&d->mutex);
+     u_device_free(xdev);
+ }
+@@ -209,12 +220,75 @@ struct xrt_device *t_rdp_head_create(struct xrt_session_event_sink *broadcast)
+     if (fd < 0) { destroy(&d->base); return NULL; }
+     struct sockaddr_un address = {.sun_family = AF_UNIX};
+     memcpy(address.sun_path, d->path, strlen(d->path) + 1);
+-    // Never unlink a live/stale listener owned by another runtime instance.
+-    if (bind(fd, (struct sockaddr *)&address, sizeof(address)) != 0) { close(fd); destroy(&d->base); return NULL; }
++    // Serialize our bind-to-listen window: a just-bound live runtime must not
++    // look stale to another starting runtime. The directory needs no lock file.
++    int guard = open(directory, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
++    if (guard < 0 || flock(guard, LOCK_EX | LOCK_NB) != 0) {
++        U_LOG_E("StereoDroidVR: another runtime of this user owns the headset startup boundary, or it cannot be locked");
++        if (guard >= 0) close(guard);
++        close(fd); destroy(&d->base); return NULL;
++    }
++    if (bind(fd, (struct sockaddr *)&address, sizeof(address)) != 0) {
++        if (errno != EADDRINUSE) {
++            U_LOG_E("StereoDroidVR: cannot bind headset socket: %s", strerror(errno));
++            goto fail;
++        }
++        struct stat occupied, current;
++        if (lstat(d->path, &occupied) != 0) {
++            U_LOG_E("StereoDroidVR: cannot inspect occupied headset socket: %s", strerror(errno));
++            goto fail;
++        }
++        if (!S_ISSOCK(occupied.st_mode)) {
++            U_LOG_E("StereoDroidVR: headset path is not a socket; left untouched");
++            goto fail;
++        }
++        if (occupied.st_uid != geteuid()) {
++            U_LOG_E("StereoDroidVR: headset socket belongs to another user; left untouched");
++            goto fail;
++        }
++        int probe = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
++        if (probe < 0) {
++            U_LOG_E("StereoDroidVR: cannot check headset socket owner: %s", strerror(errno));
++            goto fail;
++        }
++        int connected = connect(probe, (struct sockaddr *)&address, sizeof(address));
++        int error = errno;
++        close(probe);
++        if (connected == 0 || error == EAGAIN || error == EINPROGRESS) {
++            U_LOG_E("StereoDroidVR: another runtime of this user owns the headset; left untouched");
++            goto fail;
++        }
++        if (error != ECONNREFUSED) {
++            U_LOG_E("StereoDroidVR: cannot establish that headset socket is stale: %s; left untouched", strerror(error));
++            goto fail;
++        }
++        if (lstat(d->path, &current) != 0 || !S_ISSOCK(current.st_mode) || current.st_uid != geteuid() ||
++            current.st_dev != occupied.st_dev || current.st_ino != occupied.st_ino) {
++            U_LOG_E("StereoDroidVR: headset socket changed during owner check; left untouched");
++            goto fail;
++        }
++        if (unlink(d->path) != 0 || bind(fd, (struct sockaddr *)&address, sizeof(address)) != 0) {
++            U_LOG_E("StereoDroidVR: cannot replace refused same-user headset socket: %s", strerror(errno));
++            goto fail;
++        }
++        U_LOG_W("StereoDroidVR: recovered refused same-user headset socket after runtime loss");
++    }
++    if (lstat(d->path, &info) != 0) {
++        U_LOG_E("StereoDroidVR: cannot identify newly bound headset socket: %s", strerror(errno));
++        goto fail;
++    }
++    d->socket_device = info.st_dev;
++    d->socket_inode = info.st_ino;
+     d->listener = fd;
+-    if (chmod(d->path, 0600) != 0 || listen(fd, 1) != 0) { destroy(&d->base); return NULL; }
++    if (chmod(d->path, 0600) != 0 || listen(fd, 1) != 0) {
++        U_LOG_E("StereoDroidVR: cannot listen on headset socket: %s", strerror(errno));
++        close(guard); destroy(&d->base); return NULL;
++    }
++    close(guard);
+     U_LOG_W("StereoDroidVR: awaiting a paired KRdp source; no pose is valid yet");
+     return &d->base;
++fail:
++    close(guard); close(fd); destroy(&d->base); return NULL;
+ }
+ #else
+ struct xrt_device *t_rdp_head_create(struct xrt_session_event_sink *broadcast) { (void)broadcast; return NULL; }
+diff --git a/tests/tests_rdp_head.cpp b/tests/tests_rdp_head.cpp
+index eccb5ac46..8e2292511 100644
+--- a/tests/tests_rdp_head.cpp
++++ b/tests/tests_rdp_head.cpp
+@@ -15,6 +15,8 @@ extern "C" {
+ #include <sys/un.h>
+ #include <unistd.h>
+ #include <time.h>
++#include <sys/stat.h>
++#include <cstdio>
+ 
+ namespace {
+ using Packet = std::array<uint8_t, 160>;
+@@ -141,3 +143,80 @@ TEST_CASE("A new paired source invalidates history even when its origin serial r
+     REQUIRE(f.events.size() == 3);
+     REQUIRE(f.locate(f.events[0].timestamp_ns - 1).relation_flags == 0);
+ }
++
++namespace {
++struct FailureLog {
++    FILE *file = tmpfile();
++    int saved = dup(STDERR_FILENO);
++    FailureLog() { REQUIRE(file != nullptr); REQUIRE(saved >= 0); REQUIRE(dup2(fileno(file), STDERR_FILENO) >= 0); }
++    ~FailureLog() { fflush(stderr); dup2(saved, STDERR_FILENO); close(saved); fclose(file); }
++    std::string text() {
++        fflush(stderr); rewind(file); std::string result; char buf[512];
++        while (fgets(buf, sizeof(buf), file)) result += buf;
++        return result;
++    }
++};
++}
++TEST_CASE("Paired socket recovers a refused same-user socket", "[rdp-head][socket]")
++{
++    Fixture f;
++    close(f.peer); f.peer = -1;
++    xrt_device_destroy(&f.device);
++    const auto path = std::string(f.directory) + "/stereodroidvr/pose";
++    int abandoned = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0); REQUIRE(abandoned >= 0);
++    sockaddr_un address{}; address.sun_family = AF_UNIX;
++    std::memcpy(address.sun_path, path.c_str(), path.size() + 1);
++    REQUIRE(bind(abandoned, reinterpret_cast<sockaddr *>(&address), sizeof(address)) == 0);
++    REQUIRE(listen(abandoned, 1) == 0);
++    close(abandoned); // The filesystem state left by a killed listener.
++    f.device = t_rdp_head_create(&f.sink.base);
++    CHECK(f.device != nullptr);
++    if (!f.device) { unlink(path.c_str()); return; }
++    f.connect_peer(); f.send_packet(f.packet(0)); f.send_pose(boot(), 1, {0, .5, 0, .8660254037844386});
++    REQUIRE(f.locate().pose.orientation.y == .5f);
++}
++TEST_CASE("Paired socket refuses a live owner explicitly without disturbing its pose", "[rdp-head][socket]")
++{
++    Fixture f;
++    f.send_packet(f.packet(0)); f.send_pose(boot(), 1, {0, .5, 0, .8660254037844386});
++    REQUIRE(f.locate().pose.orientation.y == .5f);
++    const auto path = std::string(f.directory) + "/stereodroidvr/pose";
++    struct stat before{}, after{}; REQUIRE(lstat(path.c_str(), &before) == 0);
++    {
++        FailureLog log;
++        auto *second = t_rdp_head_create(&f.sink.base);
++        CHECK(second == nullptr);
++        if (second) xrt_device_destroy(&second);
++        CHECK(log.text().find("another runtime of this user owns the headset") != std::string::npos);
++    }
++    REQUIRE(lstat(path.c_str(), &after) == 0);
++    REQUIRE(after.st_ino == before.st_ino); REQUIRE(after.st_dev == before.st_dev);
++    f.send_pose(boot(), 1, {0, .5, 0, .8660254037844386});
++    REQUIRE(f.locate().pose.orientation.y == .5f);
++}
++TEST_CASE("Paired socket refuses a regular file explicitly and preserves its bytes", "[rdp-head][socket]")
++{
++    Fixture f; close(f.peer); f.peer = -1; xrt_device_destroy(&f.device);
++    const auto path = std::string(f.directory) + "/stereodroidvr/pose";
++    FILE *file = fopen(path.c_str(), "w+"); REQUIRE(file != nullptr);
++    REQUIRE(fputs("keep this file", file) >= 0); REQUIRE(fflush(file) == 0);
++    struct stat before{}, after{}; REQUIRE(lstat(path.c_str(), &before) == 0);
++    {
++        FailureLog log;
++        auto *second = t_rdp_head_create(&f.sink.base);
++        CHECK(second == nullptr); if (second) xrt_device_destroy(&second);
++        CHECK(log.text().find("is not a socket") != std::string::npos);
++    }
++    REQUIRE(lstat(path.c_str(), &after) == 0);
++    CHECK(after.st_ino == before.st_ino); CHECK(after.st_size == 14);
++    char bytes[15]{}; rewind(file); CHECK(fread(bytes, 1, 14, file) == 14);
++    CHECK(std::string(bytes) == "keep this file"); fclose(file); unlink(path.c_str());
++}
++TEST_CASE("Paired socket clean shutdown removes its own socket", "[rdp-head][socket]")
++{
++    Fixture f;
++    const auto path = std::string(f.directory) + "/stereodroidvr/pose";
++    struct stat info{}; REQUIRE(lstat(path.c_str(), &info) == 0); REQUIRE(S_ISSOCK(info.st_mode));
++    close(f.peer); f.peer = -1; xrt_device_destroy(&f.device);
++    REQUIRE(lstat(path.c_str(), &info) == -1); REQUIRE(errno == ENOENT);
++}
