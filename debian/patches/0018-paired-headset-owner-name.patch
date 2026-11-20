@@ -5,7 +5,7 @@ Author: Daniel Campos Ramos
 Forwarded: not-needed, local paired headset provider
 
 diff --git a/src/xrt/targets/common/target_rdp_head.c b/src/xrt/targets/common/target_rdp_head.c
-index adfa98383..31ccf7710 100644
+index adfa98383..d6214780c 100644
 --- a/src/xrt/targets/common/target_rdp_head.c
 +++ b/src/xrt/targets/common/target_rdp_head.c
 @@ -10,6 +10,7 @@
@@ -27,11 +27,11 @@ index adfa98383..31ccf7710 100644
 -    char *keep_args[] = {"sparky-stereo-problems", "keep", "--person", "--details", details,
 -                        "displayxr-runtime", "paired-headset-in-use", "LOCAL8", owner, NULL};
 +    char *keep_args[] = {"sparky-stereo-problems", "keep", "--person", "--details", NULL,
-+                        "displayxr-runtime", "paired-headset-in-use", "LOCAL8", owner, NULL, NULL};
++                        "displayxr-runtime", "paired-headset-in-use", "LOCAL8", NULL};
      char **args = clear_args;
      if (owner_socket >= 0) {
          struct ucred credentials = {0};
-@@ -46,13 +48,41 @@ static void headset_problem(int owner_socket)
+@@ -46,13 +48,45 @@ static void headset_problem(int owner_socket)
              return;
          }
          snprintf(owner, sizeof(owner), "%ld", (long)credentials.pid);
@@ -49,15 +49,19 @@ index adfa98383..31ccf7710 100644
 +        }
 +        if (program[0]) {
 +            keep_args[7] = "LOCAL9";
-+            keep_args[8] = program;
-+            keep_args[9] = owner;
 +            snprintf(text, sizeof(text), "The headset is already in use by %s (process %s). Close that program's headset session and try again.", program, owner);
 +        } else {
 +            snprintf(text, sizeof(text), "The headset is already in use by process %s. Close that program's headset session and try again.", owner);
 +        }
 +        cJSON *record = cJSON_CreateObject();
 +        cJSON *data = record ? cJSON_AddObjectToObject(record, "data") : NULL;
-+        bool ready = data && cJSON_AddNumberToObject(data, "owner_pid", credentials.pid) &&
++        cJSON *arguments = record ? cJSON_AddArrayToObject(record, "args") : NULL;
++        // The engine parses options throughout argv. Keep arbitrary names in
++        // its documented JSON arguments so even a name beginning "--" is data.
++        bool ready = data && arguments &&
++                     (!program[0] || cJSON_AddItemToArray(arguments, cJSON_CreateString(program))) &&
++                     cJSON_AddItemToArray(arguments, cJSON_CreateString(owner)) &&
++                     cJSON_AddNumberToObject(data, "owner_pid", credentials.pid) &&
 +                     cJSON_AddNumberToObject(data, "owner_uid", credentials.uid) &&
 +                     (!program[0] || cJSON_AddStringToObject(data, "owner_name", program)) &&
 +                     cJSON_AddStringToObject(record, "text_en", text);
