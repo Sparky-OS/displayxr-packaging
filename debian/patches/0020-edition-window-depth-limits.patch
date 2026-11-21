@@ -5,6 +5,87 @@ Author: Daniel Campos Ramos
 Origin: other, Sparky Stereo OS edition
 Forwarded: not-needed, edition depth contract and library
 
+diff --git a/docs/specs/runtime/depth-limits.md b/docs/specs/runtime/depth-limits.md
+index d1a1e827a..f54350170 100644
+--- a/docs/specs/runtime/depth-limits.md
++++ b/docs/specs/runtime/depth-limits.md
+@@ -15,31 +15,18 @@ view 1920 wide. They are the user's limits built on the output's display: a head
+ screen less."* A program draws inside them, so its nearest thing and the desktop's popped menu agree on one screen.
+ The runtime's camera rig does the same.
+ 
+-The order of importance is the browser's and the desktop's: **the person's choice, built on the display.**
+-
+-1. The display: the limits the compositor announced (`u_depth_limits_publish`, read with
+-   `u_depth_limits_announced`). Nothing here is a number of ours.
+-2. The person's choice on top (`u_depth_resolve`):
+-   - the class, `tv` or `headset` (the browser's flat modes): `tv` leaves the limits as announced, `headset` takes
+-     libstereo-policy's headset factor over a framed screen (2.5). Unset is the limits as announced.
+-   - the strength, a percent of the limits (100 is as announced, 0 is depth off);
+-   - the screen plane's distance (the browser's `dom.vr.flat.screen-plane-mm`; default 1 m);
+-   - an absolute sunk value and an absolute popped value in pixels of a view 1920 wide, which replace the limit they
+-     name (libstereo-policy's absolute override).
+-
+-Where the person's choices live (the environment wins over the file, key by key):
+-
+-| Choice | Environment | File in the configuration directory |
+-| --- | --- | --- |
+-| class | `DXR_VIEW_CLASS` (`tv`, `headset`) | `view-class`, first line |
+-| strength | `DXR_VIEW_DEPTH_STRENGTH` (0 to 1000) | `view-depth`: `depth-strength=` |
+-| screen plane | `DXR_VIEW_SCREEN_PLANE_MM` | `view-depth`: `screen-plane-mm=` |
+-| sunk | `DXR_VIEW_SUNK_PX` | `view-depth`: `sunk-px=` |
+-| popped | `DXR_VIEW_POPPED_PX` | `view-depth`: `popped-px=` |
+-
+-The files are read again twice a second: a change reaches the next frame. A value that is wrong (not a number, out of
+-range, an unknown class or key) is **refused and said**: the runtime logs which source held what and that it is not
+-applied, never falls through to the next source, and never drops it silently.
++The edition consumes the output's final limits through `libstereo-declare` (minimum 1.12.1).
++Each native Vulkan session has an observer for its own X11 window or Wayland surface. The library selects
++that window's output and converts its limits to the camera solver's 1920-wide eye coordinates using the
++actual displayed width. The runtime adds no display-kind factor, strength or absolute limit override.
++Changes to the window's output or the person's Display Settings reach the observer while the session runs.
++Wayland library state and its private event queue live on the observer's worker and are released there
++before the session's surface is destroyed. Ambiguous output selection is an error, not a guessed output.
++
++The screen-plane input remains `DXR_VIEW_SCREEN_PLANE_MM`, else `screen-plane-mm` in `view-depth` in the
++existing configuration directory. Zero selects the existing 1 m default. It is read again twice a second;
++invalid values and unknown file keys are refused and logged. Upstream per-application camera profiles and
++explicitly chained camera rigs retain their precedence and behavior.
+ 
+ ## From the limits to the rig
+ 
+@@ -49,7 +36,7 @@ the plane (the closed form of [legacy-camera-profile.md](legacy-camera-profile.m
+ 
+ ```
+ p(Z) = s (1 - D / Z)
+-ipdFactor = s D (2 tan(vFov/2) aspect) / (m2v eyeSeparation)         convergence = 1 / (D m2v) diopters
++ipdFactor = s D (2 tan(vFov/2) aspect) / eyeSeparation         convergence = 1 / (D m2v) diopters
+ ```
+ 
+ so a point at infinity sinks exactly `s`, the plane is at `D`, and the popped limit is met at `Z = D s / (s + q)`. The
+@@ -59,15 +46,15 @@ A person who wants a scene to reach nearer moves the plane (`D = Znear (s + q) /
+ `Depth limits:` line with the values in force, the nearest working distance included, whenever they change.
+ 
+ The runtime's comfort rule still holds (the zero-parallax plane no nearer than the viewer, `dxr_rig_clamp_for_comfort`);
+-when it binds, the line says so. The person's live keys (Shift+wheel for the separation, wheel for the plane) work on
+-top of the values in force, and Space returns to them.
++when it binds, the line says so. The resolved camera values are supplied on each locate while this depth-driven path is active.
+ 
+ ## When there are no limits
+ 
+-An X11 window, which is what a hosted legacy session has today, receives no limits from Stereo KWin: they are an event
+-on a Wayland surface. With no announcement and no absolute sunk value, the runtime logs `Depth limits: none` with the
+-reason and keeps DisplayXR's own rig (ipdFactor 1, convergence 0.5 diopters). The class, strength and plane then have
+-nothing to scale. Nothing is chosen quietly.
++No announcement leaves the current camera rig unchanged: initially it is the runtime's default rig,
++and after a previously announced output it may be stale. The runtime logs that fact and the edition's
++failure engine keeps a problem for the affected window. It clears when limits become available or the
++session ends; the person can also dismiss it. No alternate output, class or guessed limits are substituted.
+ 
+-Tests: `tests_depth_limits` (the closed form at every depth, the plane, the scale, the display's eye separation, the
+-person's choices on top, the refusals), `tests_view_class` (the names).
++Tests: `tests_depth_limits` keeps the closed-form geometry cases and verifies unchanged compositor limits,
++independent screen-plane input and invalid settings. Live output movement and runtime integration need the
++edition's isolated compositor rig; a resolver unit test alone is not that proof.
 diff --git a/src/xrt/auxiliary/util/CMakeLists.txt b/src/xrt/auxiliary/util/CMakeLists.txt
 index 2d5b770ee..7d64057ec 100644
 --- a/src/xrt/auxiliary/util/CMakeLists.txt
@@ -593,7 +674,7 @@ index deaf79b8b..d1a521a0b 100644
  		# XCB_{LIBRARIES,INCLUDE_DIRS} come from the top-level pkg_check_modules(XCB ...).
  		target_sources(comp_vk_native PRIVATE
 diff --git a/src/xrt/compositor/vk_native/comp_vk_native_compositor.c b/src/xrt/compositor/vk_native/comp_vk_native_compositor.c
-index 4b3966101..45cb55935 100644
+index 4b3966101..d09ed3e2c 100644
 --- a/src/xrt/compositor/vk_native/comp_vk_native_compositor.c
 +++ b/src/xrt/compositor/vk_native/comp_vk_native_compositor.c
 @@ -116,6 +116,8 @@
@@ -627,9 +708,9 @@ index 4b3966101..45cb55935 100644
  	if (c->xcb_window != NULL) {
  		comp_vk_native_window_xcb_destroy(&c->xcb_window);
  	}
-@@ -15330,6 +15340,17 @@ comp_vk_native_compositor_create(struct xrt_device *xdev,
- 	}
- #endif
+@@ -16247,6 +16257,17 @@ comp_vk_native_compositor_create(struct xrt_device *xdev,
+ 	mcp_capture_init(&c->mcp_capture);
+ 	mcp_capture_install(&c->mcp_capture);
  
 +#ifdef XRT_OS_LINUX_DESKTOP
 +#ifdef XRT_HAVE_WAYLAND
@@ -642,10 +723,10 @@ index 4b3966101..45cb55935 100644
 +	}
 +#endif
 +
- 	// Initialize settings
- 	memset(&c->settings, 0, sizeof(c->settings));
- 	c->settings.preferred.width = xdev->hmd->screens[0].w_pixels;
-@@ -16385,6 +16406,31 @@ comp_vk_native_compositor_get_rear_budget(struct xrt_compositor *xc, struct u_re
+ 	*out_xc = &c->base;
+ 
+ 	U_LOG_I("VK native compositor created successfully (%ux%u)",
+@@ -16385,6 +16406,33 @@ comp_vk_native_compositor_get_rear_budget(struct xrt_compositor *xc, struct u_re
   *   @p off_panel_for_projection this returns the window's own size, centred on
   *   the panel. It is not a position, and nothing phase-related reads it.
   */
@@ -660,6 +741,7 @@ index 4b3966101..45cb55935 100644
 +		result = comp_vk_native_depth_get(c->depth_observer, metrics.window_pixel_width, out);
 +	}
 +	bool missing = result != 0;
++	os_mutex_lock(&c->mutex);
 +	if (!c->depth_reported || c->depth_missing != missing) {
 +		char key[96];
 +		snprintf(key, sizeof(key), "depth-%ld-%p", (long)getpid(), (void *)c);
@@ -667,6 +749,7 @@ index 4b3966101..45cb55935 100644
 +		c->depth_reported = true;
 +		c->depth_missing = missing;
 +	}
++	os_mutex_unlock(&c->mutex);
 +	return result;
 +#else
 +	(void)xc; (void)out;
