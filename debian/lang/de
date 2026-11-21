@@ -5,6 +5,6 @@ LOCAL4="DisplayXR kann dieses Programm nicht in 3D zeigen: Diese Version der Lau
 LOCAL5="DisplayXR kann dieses Programm nicht in 3D zeigen: Die Deklaration an den Desktop konnte nicht abgegeben werden; deshalb wird das Programm als seine zwei Ansichten nebeneinander gezeigt, flach. Starten Sie das Programm neu; wenn es sich wiederholt, sagt das Protokoll des Programms mehr. DisplayXR meldet: %s"
 LOCAL6="DisplayXR kann die 2D-Inhalte dieses Programms nicht in beiden Bildern seines 3D-Fensters anordnen; deshalb können sie in einem der Bilder fehlen oder verschoben sein. Verwenden Sie eine Version des Programms, die ihre 2D-Inhalte als gewöhnliche Rechtecke über dem 3D platziert. DisplayXR meldet: %s"
 # LOCAL7 and LOCAL8: translation pending; English source text.
-LOCAL7="Headset already in use"
-LOCAL8="The headset is already in use by process %s. Close that program's headset session and try again."
-LOCAL9="The headset is already in use by %s (process %s). Close that program's headset session and try again."
+LOCAL7="Headset bereits in Gebrauch"
+LOCAL8="Das Headset wird bereits von Prozess %s verwendet. Beenden Sie die Headset-Sitzung in diesem Programm und versuchen Sie es erneut."
+LOCAL9="Das Headset wird bereits von %s (Prozess %s) verwendet. Beenden Sie die Headset-Sitzung in diesem Programm und versuchen Sie es erneut."
