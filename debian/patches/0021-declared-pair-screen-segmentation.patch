@@ -1,0 +1,27 @@
+Description: Keep a declared stereo pair out of physical screen segmentation
+ A two-view buffer is not a desktop rectangle. The physical screen weave
+ crops and repacks it again when it intersects a second output.
+ Stereo KWin owns placement and output filtering of the declared pair.
+Author: Daniel Campos Ramos
+Origin: other, Sparky Stereo OS runtime fork
+Forwarded: no, to be offered to DisplayXR after their open pull request settles
+Last-Update: 2026-11-21
+
+diff --git a/src/xrt/compositor/vk_native/comp_vk_native_compositor.c b/src/xrt/compositor/vk_native/comp_vk_native_compositor.c
+index d09ed3e2c..ea3f1a737 100644
+--- a/src/xrt/compositor/vk_native/comp_vk_native_compositor.c
++++ b/src/xrt/compositor/vk_native/comp_vk_native_compositor.c
+@@ -6594,6 +6594,13 @@ vk_segments_frame_update_split(struct comp_vk_native_compositor *c,
+                                bool *out_would_split)
+ {
+ 	*out_would_split = false;
++	// A declared pair is a buffer for the desktop compositor, not a physical
++	// screen weave. Its two-view width is not a desktop rectangle: segmenting
++	// it against screen coordinates crops and packs the eyes a second time.
++	// Stereo KWin owns output placement and filtering for this declaration.
++	if (c->full_sbs.declared) {
++		return false;
++	}
+ 	if (c->seg_screens == NULL || c->display_processor == NULL || c->cmd_pool == VK_NULL_HANDLE ||
+ 	    !c->have_seg_window) {
+ 		return false;
