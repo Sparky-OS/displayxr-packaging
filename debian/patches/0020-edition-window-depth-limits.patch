@@ -593,18 +593,19 @@ index deaf79b8b..d1a521a0b 100644
  		# XCB_{LIBRARIES,INCLUDE_DIRS} come from the top-level pkg_check_modules(XCB ...).
  		target_sources(comp_vk_native PRIVATE
 diff --git a/src/xrt/compositor/vk_native/comp_vk_native_compositor.c b/src/xrt/compositor/vk_native/comp_vk_native_compositor.c
-index 4b3966101..1fabec180 100644
+index 4b3966101..45cb55935 100644
 --- a/src/xrt/compositor/vk_native/comp_vk_native_compositor.c
 +++ b/src/xrt/compositor/vk_native/comp_vk_native_compositor.c
-@@ -116,6 +116,7 @@
+@@ -116,6 +116,8 @@
  
  #ifdef XRT_OS_LINUX_DESKTOP
  #include "vk_native/comp_vk_native_window_xcb.h"
 +#include "comp_vk_native_depth.h"
++#include <errno.h>
  #include "os/os_display_scale.h"
  #include "util/u_x11_scale.h"
  #endif
-@@ -536,6 +537,8 @@ struct comp_vk_native_compositor
+@@ -536,6 +538,8 @@ struct comp_vk_native_compositor
  #ifdef XRT_OS_LINUX_DESKTOP
  	//! XCB window helper (self-owned, hosted class). NULL when the app
  	//! supplied its own window via XR_DXR_xlib_window_binding (handle class).
@@ -613,7 +614,7 @@ index 4b3966101..1fabec180 100644
  	struct comp_vk_native_window_xcb *xcb_window;
  
  	//! Connection + window id handed to the target as the type-erased hwnd.
-@@ -14364,6 +14367,12 @@ vk_compositor_destroy(struct xrt_compositor *xc)
+@@ -14364,6 +14368,12 @@ vk_compositor_destroy(struct xrt_compositor *xc)
  #endif
  
  #ifdef XRT_OS_LINUX_DESKTOP
@@ -626,7 +627,7 @@ index 4b3966101..1fabec180 100644
  	if (c->xcb_window != NULL) {
  		comp_vk_native_window_xcb_destroy(&c->xcb_window);
  	}
-@@ -15330,6 +15339,17 @@ comp_vk_native_compositor_create(struct xrt_device *xdev,
+@@ -15330,6 +15340,17 @@ comp_vk_native_compositor_create(struct xrt_device *xdev,
  	}
  #endif
  
@@ -644,7 +645,7 @@ index 4b3966101..1fabec180 100644
  	// Initialize settings
  	memset(&c->settings, 0, sizeof(c->settings));
  	c->settings.preferred.width = xdev->hmd->screens[0].w_pixels;
-@@ -16385,6 +16405,31 @@ comp_vk_native_compositor_get_rear_budget(struct xrt_compositor *xc, struct u_re
+@@ -16385,6 +16406,31 @@ comp_vk_native_compositor_get_rear_budget(struct xrt_compositor *xc, struct u_re
   *   @p off_panel_for_projection this returns the window's own size, centred on
   *   the panel. It is not a position, and nothing phase-related reads it.
   */
