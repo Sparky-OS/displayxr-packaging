@@ -7,3 +7,6 @@ LOCAL6="DisplayXR 無法把此程式的 2D 內容放進其 3D 視窗的兩幅畫
 LOCAL7="頭戴裝置已在使用中"
 LOCAL8="處理程序 %s 正在使用頭戴裝置。請結束該程式的頭戴裝置工作階段，然後再試一次。"
 LOCAL9="%s（處理程序 %s）正在使用頭戴裝置。請結束該程式的頭戴裝置工作階段，然後再試一次。"
+# LOCAL10 and LOCAL11: new depth messages, awaiting translations through the main session.
+LOCAL10="Depth limits unavailable"
+LOCAL11="The depth limits for this window's screen are unavailable. DisplayXR is keeping the current camera settings, so the picture may not match your depth limits. Check Display Settings in Stereo KWin."

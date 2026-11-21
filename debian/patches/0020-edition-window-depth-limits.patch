@@ -1,0 +1,1406 @@
+Description: Consume final per-window KWin depth limits through the edition library
+ Remove the edition class, strength and absolute depth overrides.
+ Observe each session window through libstereo-declare and report missing limits.
+Author: Daniel Campos Ramos
+Origin: other, Sparky Stereo OS edition
+Forwarded: not-needed, edition depth contract and library
+
+diff --git a/src/xrt/auxiliary/util/CMakeLists.txt b/src/xrt/auxiliary/util/CMakeLists.txt
+index 2d5b770ee..7d64057ec 100644
+--- a/src/xrt/auxiliary/util/CMakeLists.txt
++++ b/src/xrt/auxiliary/util/CMakeLists.txt
+@@ -21,8 +21,6 @@ add_library(
+ 	u_camera_profile.h
+ 	u_depth_limits.c
+ 	u_depth_limits.h
+-	u_view_class.c
+-	u_view_class.h
+ 	u_exe_basename.c
+ 	u_exe_basename.h
+ 	u_autoexpgain.c
+diff --git a/src/xrt/auxiliary/util/u_depth_limits.c b/src/xrt/auxiliary/util/u_depth_limits.c
+index d1a0b4cf5..3b512e707 100644
+--- a/src/xrt/auxiliary/util/u_depth_limits.c
++++ b/src/xrt/auxiliary/util/u_depth_limits.c
+@@ -9,11 +9,9 @@
+ 
+ #include "xrt/xrt_config_os.h"
+ 
+-#include "os/os_threading.h"
+ #include "util/u_file.h"
+ 
+ #include <ctype.h>
+-#include <stdatomic.h>
+ #include <errno.h>
+ #include <math.h>
+ #include <stdio.h>
+@@ -21,81 +19,6 @@
+ #include <string.h>
+ 
+ 
+-/*
+- *
+- * What the compositor announced.
+- *
+- */
+-
+-static struct
+-{
+-	struct os_mutex lock;
+-	bool have;
+-	struct u_depth_limits limits;
+-	uint64_t serial;
+-} g_announced;
+-static atomic_int g_announced_state; // 0 not initialised, 1 initialising, 2 ready
+-
+-static void
+-announced_lock(void)
+-{
+-	int expected = 0;
+-	if (atomic_compare_exchange_strong(&g_announced_state, &expected, 1)) {
+-		os_mutex_init(&g_announced.lock);
+-		atomic_store(&g_announced_state, 2);
+-	} else {
+-		while (atomic_load(&g_announced_state) != 2) {
+-		}
+-	}
+-	os_mutex_lock(&g_announced.lock);
+-}
+-
+-static void
+-announced_unlock(void)
+-{
+-	os_mutex_unlock(&g_announced.lock);
+-}
+-
+-void
+-u_depth_limits_publish(double sunk_px, double popped_px)
+-{
+-	announced_lock();
+-	if (!g_announced.have || g_announced.limits.sunk_px != sunk_px || g_announced.limits.popped_px != popped_px) {
+-		g_announced.have = true;
+-		g_announced.limits.sunk_px = sunk_px;
+-		g_announced.limits.popped_px = popped_px;
+-		g_announced.serial++;
+-	}
+-	announced_unlock();
+-}
+-
+-void
+-u_depth_limits_withdraw(void)
+-{
+-	announced_lock();
+-	if (g_announced.have) {
+-		g_announced.have = false;
+-		g_announced.serial++;
+-	}
+-	announced_unlock();
+-}
+-
+-bool
+-u_depth_limits_announced(struct u_depth_limits *out, uint64_t *out_serial)
+-{
+-	announced_lock();
+-	const bool have = g_announced.have;
+-	if (have && out != NULL) {
+-		*out = g_announced.limits;
+-	}
+-	if (out_serial != NULL) {
+-		*out_serial = g_announced.serial;
+-	}
+-	announced_unlock();
+-	return have;
+-}
+-
+-
+ /*
+  *
+  * The person's choice.
+@@ -106,8 +29,6 @@ void
+ u_depth_settings_default(struct u_depth_settings *s)
+ {
+ 	memset(s, 0, sizeof(*s));
+-	s->cls = U_VIEW_CLASS_AUTO;
+-	s->strength_percent = 100.0;
+ }
+ 
+ static void
+@@ -181,7 +102,7 @@ file_value(const char *text, const char *key, char *value, size_t value_size)
+ static bool
+ file_unknown_keys(const char *text, char *message, size_t message_size)
+ {
+-	static const char *const keys[] = {"depth-strength", "screen-plane-mm", "sunk-px", "popped-px"};
++	static const char *const keys[] = {"screen-plane-mm"};
+ 	if (text == NULL) {
+ 		return true;
+ 	}
+@@ -203,7 +124,7 @@ file_unknown_keys(const char *text, char *message, size_t message_size)
+ 				snprintf(shown, sizeof(shown), "%.*s", (int)(len < 40 ? len : 40), p);
+ 				say(message, message_size,
+ 				    "depth: the file view-depth holds the line \"%s\", which is not a key (accepted: "
+-				    "depth-strength, screen-plane-mm, sunk-px, popped-px); ignored. %s",
++				    "screen-plane-mm); ignored. %s",
+ 				    shown, "");
+ 				ok = false;
+ 			}
+@@ -263,7 +184,6 @@ u_depth_settings_parse(struct u_depth_settings *s,
+                        const char *(*env_get)(const char *name, void *user),
+                        void *user,
+                        const char *view_depth_text,
+-                       const char *class_file_text,
+                        char *message,
+                        size_t message_size)
+ {
+@@ -273,49 +193,9 @@ u_depth_settings_parse(struct u_depth_settings *s,
+ 	}
+ 	bool ok = true;
+ 
+-	// the class: the environment (a bad value is refused and the file is not read past it), then the file
+-	const char *cv = env_get != NULL ? env_get("DXR_VIEW_CLASS", user) : NULL;
+-	if (cv != NULL && cv[0] != '\0') {
+-		if (!u_view_class_parse(cv, &s->cls)) {
+-			char shown[48];
+-			snprintf(shown, sizeof(shown), "%.40s", cv);
+-			say(message, message_size,
+-			    "depth: DXR_VIEW_CLASS holds \"%s\", which is not a display kind (accepted: " U_VIEW_CLASS_NAMES
+-			    "); not applied. %s",
+-			    shown, "");
+-			s->cls = U_VIEW_CLASS_AUTO;
+-			ok = false;
+-		}
+-	} else if (class_file_text != NULL) {
+-		char line[64];
+-		snprintf(line, sizeof(line), "%.60s", class_file_text);
+-		char *nl = strchr(line, '\n');
+-		if (nl != NULL) {
+-			*nl = '\0';
+-		}
+-		size_t n = strlen(line);
+-		while (n > 0 && (line[n - 1] == '\r' || line[n - 1] == ' ' || line[n - 1] == '\t')) {
+-			line[--n] = '\0';
+-		}
+-		if (line[0] != '\0' && !u_view_class_parse(line, &s->cls)) {
+-			say(message, message_size,
+-			    "depth: the file view-class holds \"%s\", which is not a display kind (accepted: " U_VIEW_CLASS_NAMES
+-			    "); not applied. %s",
+-			    line, "");
+-			s->cls = U_VIEW_CLASS_AUTO;
+-			ok = false;
+-		}
+-	}
+-
+ 	ok = file_unknown_keys(view_depth_text, message, message_size) && ok;
+-	ok = numeric("DXR_VIEW_DEPTH_STRENGTH", "depth-strength", 0.0, 1000.0, env_get, user, view_depth_text,
+-	             &s->strength_percent, message, message_size) && ok;
+ 	ok = numeric("DXR_VIEW_SCREEN_PLANE_MM", "screen-plane-mm", 0.0, 1.0e6, env_get, user, view_depth_text,
+ 	             &s->plane_mm, message, message_size) && ok;
+-	ok = numeric("DXR_VIEW_SUNK_PX", "sunk-px", 0.0, 7680.0, env_get, user, view_depth_text, &s->sunk_px, message,
+-	             message_size) && ok;
+-	ok = numeric("DXR_VIEW_POPPED_PX", "popped-px", 0.0, 7680.0, env_get, user, view_depth_text, &s->popped_px,
+-	             message, message_size) && ok;
+ 	return ok;
+ }
+ 
+@@ -357,10 +237,8 @@ bool
+ u_depth_settings_load(struct u_depth_settings *s, char *message, size_t message_size)
+ {
+ 	char *depth = read_config_file("view-depth");
+-	char *cls = read_config_file("view-class");
+-	const bool ok = u_depth_settings_parse(s, process_env, NULL, depth, cls, message, message_size);
++	const bool ok = u_depth_settings_parse(s, process_env, NULL, depth, message, message_size);
+ 	free(depth);
+-	free(cls);
+ 	return ok;
+ }
+ 
+@@ -378,25 +256,12 @@ u_depth_resolve(const struct u_depth_settings *s, const struct u_depth_limits *a
+ 	out->source = U_DEPTH_SOURCE_NONE;
+ 	out->popped_px = -1.0;
+ 	out->plane_m = (s->plane_mm > 0.0 ? s->plane_mm : U_DEPTH_LIMITS_DEFAULT_PLANE_MM) / 1000.0;
+-	if (announced == NULL && !(s->sunk_px > 0.0)) {
++	if (announced == NULL) {
+ 		return false;
+ 	}
+-	if (announced != NULL) {
+-		const double factor = u_view_class_factor(s->cls) * s->strength_percent / 100.0;
+-		out->source = U_DEPTH_SOURCE_COMPOSITOR;
+-		out->sunk_px = announced->sunk_px * factor;
+-		out->popped_px = announced->popped_px >= 0.0 ? announced->popped_px * factor : -1.0;
+-	} else {
+-		out->source = U_DEPTH_SOURCE_PERSON;
+-	}
+-	if (s->sunk_px > 0.0) {
+-		out->sunk_px = s->sunk_px;
+-		out->sunk_replaced = true;
+-	}
+-	if (s->popped_px > 0.0) {
+-		out->popped_px = s->popped_px;
+-		out->popped_replaced = true;
+-	}
++	out->source = U_DEPTH_SOURCE_COMPOSITOR;
++	out->sunk_px = announced->sunk_px;
++	out->popped_px = announced->popped_px;
+ 	return true;
+ }
+ 
+diff --git a/src/xrt/auxiliary/util/u_depth_limits.h b/src/xrt/auxiliary/util/u_depth_limits.h
+index 8b6ed4f33..da92fe927 100644
+--- a/src/xrt/auxiliary/util/u_depth_limits.h
++++ b/src/xrt/auxiliary/util/u_depth_limits.h
+@@ -11,10 +11,8 @@
+  * the desktop's popped menu and a game's nearest thing agree on one screen. The same limits give a legacy
+  * application's camera rig its separation and screen plane, here.
+  *
+- * The order of importance is the browser's and the desktop's: the person's choice, built on the display. The person's
+- * choice is a class (tv or headset, the browser's flat modes), a strength in percent, a screen plane distance and, for
+- * either limit, an absolute value in pixels that replaces it. Nothing here is a number of ours: with no limits and no
+- * absolute value there is nothing to build on, and the caller says so.
++ * The compositor's limits are final. The runtime adds no display class, strength or absolute override.
++ * Only the screen-plane distance remains a runtime camera input.
+  *
+  * The closed form. A point Z in front of the camera (world units, metres for OpenVR) has, as a fraction of the canvas
+  * width and positive behind the screen plane, the disparity of docs/specs/runtime/legacy-camera-profile.md,
+@@ -34,7 +32,6 @@
+ 
+ #pragma once
+ 
+-#include "util/u_view_class.h"
+ 
+ #include <stdbool.h>
+ #include <stddef.h>
+@@ -57,65 +54,27 @@ struct u_depth_limits
+ 	double popped_px;
+ };
+ 
+-/*
+- *
+- * What the compositor announced. One process-wide copy, written by whoever speaks to the compositor, read by the
+- * sessions. Safe from any thread.
+- *
+- */
+-
+-//! The compositor announced these limits for the output the window mainly sits on. Bumps the serial when they change.
+-void
+-u_depth_limits_publish(double sunk_px, double popped_px);
+-
+-//! The compositor no longer announces limits (the surface is gone, or it never could).
+-void
+-u_depth_limits_withdraw(void);
+-
+-//! The announced limits, if any; @p out_serial changes whenever they do.
+-bool
+-u_depth_limits_announced(struct u_depth_limits *out, uint64_t *out_serial);
+-
+-/*
+- *
+- * The person's choice.
+- *
+- */
+-
+ struct u_depth_settings
+ {
+-	enum u_view_class cls;           //!< tv, headset or auto
+-	double strength_percent;         //!< of the limits, 100 = as they are; 0 switches depth off
+ 	double plane_mm;                 //!< the screen plane's distance, 0 = the default
+-	double sunk_px;                  //!< replaces the sunk limit when above 0
+-	double popped_px;                //!< replaces the popped limit when above 0
+ 	uint64_t serial;                 //!< changes whenever the settings are read again and differ
+ };
+ 
+-//! The settings with nothing chosen: auto, 100 %, the default plane, no absolute values.
++//! The default screen plane.
+ void
+ u_depth_settings_default(struct u_depth_settings *s);
+ 
+-/*!
+- * Read the person's choices: the class (DXR_VIEW_CLASS, else the file view-class), and DXR_VIEW_DEPTH_STRENGTH,
+- * DXR_VIEW_SCREEN_PLANE_MM, DXR_VIEW_SUNK_PX and DXR_VIEW_POPPED_PX, each else the same key in the file `view-depth`
+- * of the configuration directory (lines `key=value`: depth-strength, screen-plane-mm, sunk-px, popped-px).
+- * The file is read again by u_depth_settings_refresh() when it changes.
+- * A value that is wrong (not a number, below 0, a strength over 1000, an unknown key or class) is REFUSED, never
+- * silently dropped: @p message says which source held what and what is used instead (the value left at its default).
+- * Returns false if anything was refused.
+- */
++//! Read DXR_VIEW_SCREEN_PLANE_MM or screen-plane-mm in view-depth; report invalid keys and values.
+ bool
+ u_depth_settings_load(struct u_depth_settings *s, char *message, size_t message_size);
+ 
+ //! The same from text instead of the process: @p env_get is called with a variable name and returns its value or NULL;
+-//! @p view_depth_text is the content of the view-depth file or NULL; @p class_file_text that of view-class.
++//! @p view_depth_text is the content of the view-depth file or NULL.
+ bool
+ u_depth_settings_parse(struct u_depth_settings *s,
+                        const char *(*env_get)(const char *name, void *user),
+                        void *user,
+                        const char *view_depth_text,
+-                       const char *class_file_text,
+                        char *message,
+                        size_t message_size);
+ 
+@@ -130,25 +89,18 @@ enum u_depth_source
+ {
+ 	U_DEPTH_SOURCE_NONE = 0,   //!< there are none
+ 	U_DEPTH_SOURCE_COMPOSITOR, //!< the compositor's, for the output
+-	U_DEPTH_SOURCE_PERSON,     //!< the person's absolute values (no compositor limits)
+ };
+ 
+-//! The limits in force: the compositor's with the person's choices on top.
++//! The limits in force: exactly those supplied by the compositor.
+ struct u_depth_resolved
+ {
+ 	enum u_depth_source source;
+ 	double sunk_px;   //!< pixels of a view 1920 wide; 0 = depth off
+ 	double popped_px; //!< negative = not known
+ 	double plane_m;
+-	bool sunk_replaced;   //!< the person's absolute sunk value replaced the compositor's
+-	bool popped_replaced;
+ };
+ 
+-/*!
+- * The person's choices on top of the compositor's limits (@p announced, or NULL when it announced none). Returns false
+- * and leaves @p out at U_DEPTH_SOURCE_NONE when there is nothing to build on: no compositor limits and no absolute
+- * sunk value.
+- */
++//! Copy the announced limits unchanged; false without an announcement. The screen plane is independent.
+ bool
+ u_depth_resolve(const struct u_depth_settings *s, const struct u_depth_limits *announced, struct u_depth_resolved *out);
+ 
+diff --git a/src/xrt/auxiliary/util/u_view_class.c b/src/xrt/auxiliary/util/u_view_class.c
+deleted file mode 100644
+index 37fb3655f..000000000
+--- a/src/xrt/auxiliary/util/u_view_class.c
++++ /dev/null
+@@ -1,127 +0,0 @@
+-// Copyright 2026, The DisplayXR Project
+-// SPDX-License-Identifier: BSL-1.0
+-/*!
+- * @file
+- * @brief The person's choice of display kind for legacy applications' views.
+- *
+- * ORDER 478 milestones 2 and 2b (Sparky Stereo OS). The two names are the browser's flat modes (tv, headset). A
+- * class is a factor on the depth limits the compositor announces for the output (u_depth_limits.h), libstereo-policy's
+- * kind factors: a headset takes 2.5 times the separation of a framed screen. No number of the camera rig is chosen
+- * here: the rig follows from the limits.
+- */
+-
+-#include "util/u_view_class.h"
+-
+-#include "xrt/xrt_config_os.h"
+-
+-#include "util/u_file.h"
+-
+-#include <stdio.h>
+-#include <stdlib.h>
+-#include <string.h>
+-
+-#define VIEW_CLASS_FILE "view-class"
+-#define VIEW_CLASS_ENV "DXR_VIEW_CLASS"
+-
+-static const char *const class_names[] = {"auto", "tv", "headset"};
+-
+-bool
+-u_view_class_parse(const char *name, enum u_view_class *out)
+-{
+-	if (name == NULL)
+-		return false;
+-	for (size_t i = 1; i < sizeof(class_names) / sizeof(class_names[0]); i++) {
+-		if (strcmp(name, class_names[i]) == 0) {
+-			*out = (enum u_view_class)i;
+-			return true;
+-		}
+-	}
+-	return false;
+-}
+-
+-const char *
+-u_view_class_name(enum u_view_class cls)
+-{
+-	return class_names[cls == U_VIEW_CLASS_TV ? 1 : cls == U_VIEW_CLASS_HEADSET ? 2 : 0];
+-}
+-
+-double
+-u_view_class_factor(enum u_view_class cls)
+-{
+-	return cls == U_VIEW_CLASS_HEADSET ? U_VIEW_CLASS_HEADSET_FACTOR : U_VIEW_CLASS_TV_FACTOR;
+-}
+-
+-static void
+-say(char *message, size_t size, const char *source, const char *value)
+-{
+-	if (message == NULL || size == 0)
+-		return;
+-	snprintf(message, size,
+-	         "view class: %s holds \"%.40s\", which is not a display kind; accepted: %s. Not applied: the "
+-	         "compositor's limits (%s) are used until it is corrected",
+-	         source, value, U_VIEW_CLASS_NAMES, class_names[U_VIEW_CLASS_AUTO]);
+-}
+-
+-bool
+-u_view_class_select(const char *env_value,
+-                    const char *file_path,
+-                    enum u_view_class *out,
+-                    enum u_view_class_source *out_source,
+-                    char *message,
+-                    size_t message_size)
+-{
+-	if (message != NULL && message_size > 0)
+-		message[0] = '\0';
+-	*out = U_VIEW_CLASS_AUTO;
+-	*out_source = U_VIEW_CLASS_FROM_DEFAULT;
+-	if (env_value != NULL && env_value[0] != '\0') {
+-		if (u_view_class_parse(env_value, out)) {
+-			*out_source = U_VIEW_CLASS_FROM_ENVIRONMENT;
+-			return true;
+-		}
+-		*out = U_VIEW_CLASS_AUTO;
+-		say(message, message_size, VIEW_CLASS_ENV, env_value);
+-		return false;
+-	}
+-	if (file_path != NULL) {
+-		FILE *f = fopen(file_path, "r");
+-		if (f != NULL) {
+-			char line[64] = {0};
+-			bool got = fgets(line, sizeof(line), f) != NULL;
+-			fclose(f);
+-			if (got) {
+-				size_t n = strlen(line);
+-				while (n > 0 && (line[n - 1] == '\n' || line[n - 1] == '\r' || line[n - 1] == ' '))
+-					line[--n] = '\0';
+-			}
+-			if (!got || line[0] == '\0')
+-				return true; // an empty file selects nothing: the display's default
+-			if (u_view_class_parse(line, out)) {
+-				*out_source = U_VIEW_CLASS_FROM_FILE;
+-				return true;
+-			}
+-			*out = U_VIEW_CLASS_AUTO;
+-			say(message, message_size, file_path, line);
+-			return false;
+-		}
+-	}
+-	return true;
+-}
+-
+-bool
+-u_view_class_select_for_process(enum u_view_class *out,
+-                                enum u_view_class_source *out_source,
+-                                char *message,
+-                                size_t message_size)
+-{
+-	char path[1024];
+-	const char *file = NULL;
+-#ifndef XRT_OS_WINDOWS
+-	int n = u_file_get_path_in_config_dir(VIEW_CLASS_FILE, path, sizeof(path));
+-	if (n > 0 && (size_t)n < sizeof(path))
+-		file = path;
+-#else
+-	(void)path; // Windows: the environment only, until the machine-wide configuration path is decided
+-#endif
+-	return u_view_class_select(getenv(VIEW_CLASS_ENV), file, out, out_source, message, message_size);
+-}
+diff --git a/src/xrt/auxiliary/util/u_view_class.h b/src/xrt/auxiliary/util/u_view_class.h
+deleted file mode 100644
+index 4ac94b289..000000000
+--- a/src/xrt/auxiliary/util/u_view_class.h
++++ /dev/null
+@@ -1,74 +0,0 @@
+-// Copyright 2026, The DisplayXR Project
+-// SPDX-License-Identifier: BSL-1.0
+-#pragma once
+-
+-#include <stdbool.h>
+-#include <stddef.h>
+-
+-#ifdef __cplusplus
+-extern "C" {
+-#endif
+-
+-//! The kind of display the person says a legacy application's two views are made for. The names are the browser's
+-//! flat modes (`dom.vr.flat.mode`: tv, headset), so one idea has one name. The person chooses; the runtime never
+-//! decides it from the output (one desktop can drive a 3D television and a viewer at the same time).
+-enum u_view_class
+-{
+-	//! Nothing chosen: the depth limits of the output the compositor announces, as they are.
+-	U_VIEW_CLASS_AUTO = 0,
+-	//! A framed 3D screen (television, projector, monitor, anaglyph): the limits as the compositor announces them.
+-	U_VIEW_CLASS_TV = 1,
+-	//! A headset (or a phone in a viewer): libstereo-policy's headset factor over a framed screen's limits.
+-	U_VIEW_CLASS_HEADSET = 2,
+-};
+-
+-//! The names the selector takes.
+-#define U_VIEW_CLASS_NAMES "tv, headset"
+-
+-//! libstereo-policy's kind factors (stereo_policy_display_depth, STEREO_POLICY_DISPLAY_*): framed 1.0, headset 2.5.
+-#define U_VIEW_CLASS_TV_FACTOR 1.0
+-#define U_VIEW_CLASS_HEADSET_FACTOR 2.5
+-
+-enum u_view_class_source
+-{
+-	U_VIEW_CLASS_FROM_DEFAULT = 0, //!< nothing set it: the limits as announced (U_VIEW_CLASS_AUTO)
+-	U_VIEW_CLASS_FROM_ENVIRONMENT, //!< DXR_VIEW_CLASS
+-	U_VIEW_CLASS_FROM_FILE,        //!< view-class in the runtime's configuration directory
+-};
+-
+-//! Parse one selector value (exact, lower case). False for anything else; @p out is untouched.
+-bool
+-u_view_class_parse(const char *name, enum u_view_class *out);
+-
+-//! The selector's name, as u_view_class_parse takes it; "auto" for U_VIEW_CLASS_AUTO.
+-const char *
+-u_view_class_name(enum u_view_class cls);
+-
+-//! The factor a class puts on the limits the compositor announces (auto and tv 1, headset 2.5).
+-double
+-u_view_class_factor(enum u_view_class cls);
+-
+-/*!
+- * Resolve the person's selector, in this order: the environment value @p env_value (DXR_VIEW_CLASS), then the
+- * first line of the file @p file_path (NULL = no file), then the default of the display. A value that is not a
+- * class name is REFUSED: @p out is the default, the result is false and @p message says which source held it,
+- * what it was and which names are accepted, so the caller can tell the person. Never silent.
+- */
+-bool
+-u_view_class_select(const char *env_value,
+-                    const char *file_path,
+-                    enum u_view_class *out,
+-                    enum u_view_class_source *out_source,
+-                    char *message,
+-                    size_t message_size);
+-
+-//! u_view_class_select with the process environment and view-class in the configuration directory.
+-bool
+-u_view_class_select_for_process(enum u_view_class *out,
+-                                enum u_view_class_source *out_source,
+-                                char *message,
+-                                size_t message_size);
+-
+-#ifdef __cplusplus
+-}
+-#endif
+diff --git a/src/xrt/compositor/vk_native/CMakeLists.txt b/src/xrt/compositor/vk_native/CMakeLists.txt
+index deaf79b8b..d1a521a0b 100644
+--- a/src/xrt/compositor/vk_native/CMakeLists.txt
++++ b/src/xrt/compositor/vk_native/CMakeLists.txt
+@@ -148,6 +148,9 @@ if((WIN32 OR APPLE OR ANDROID OR (XRT_HAVE_LINUX AND XRT_HAVE_XCB)) AND XRT_HAVE
+ 	endif()
+ 
+ 	if(XRT_HAVE_LINUX AND XRT_HAVE_XCB)
++		pkg_check_modules(STEREO_DECLARE REQUIRED IMPORTED_TARGET stereo-declare>=1.12.1)
++		target_sources(comp_vk_native PRIVATE comp_vk_native_depth.c comp_vk_native_depth.h)
++		target_link_libraries(comp_vk_native PRIVATE PkgConfig::STEREO_DECLARE)
+ 		# Linux X11 present path (Phase 1): self-created XCB window + VK_KHR_xcb_surface.
+ 		# XCB_{LIBRARIES,INCLUDE_DIRS} come from the top-level pkg_check_modules(XCB ...).
+ 		target_sources(comp_vk_native PRIVATE
+diff --git a/src/xrt/compositor/vk_native/comp_vk_native_compositor.c b/src/xrt/compositor/vk_native/comp_vk_native_compositor.c
+index 4b3966101..1fabec180 100644
+--- a/src/xrt/compositor/vk_native/comp_vk_native_compositor.c
++++ b/src/xrt/compositor/vk_native/comp_vk_native_compositor.c
+@@ -116,6 +116,7 @@
+ 
+ #ifdef XRT_OS_LINUX_DESKTOP
+ #include "vk_native/comp_vk_native_window_xcb.h"
++#include "comp_vk_native_depth.h"
+ #include "os/os_display_scale.h"
+ #include "util/u_x11_scale.h"
+ #endif
+@@ -536,6 +537,8 @@ struct comp_vk_native_compositor
+ #ifdef XRT_OS_LINUX_DESKTOP
+ 	//! XCB window helper (self-owned, hosted class). NULL when the app
+ 	//! supplied its own window via XR_DXR_xlib_window_binding (handle class).
++	struct comp_vk_native_depth *depth_observer;
++	bool depth_reported, depth_missing;
+ 	struct comp_vk_native_window_xcb *xcb_window;
+ 
+ 	//! Connection + window id handed to the target as the type-erased hwnd.
+@@ -14364,6 +14367,12 @@ vk_compositor_destroy(struct xrt_compositor *xc)
+ #endif
+ 
+ #ifdef XRT_OS_LINUX_DESKTOP
++	if (c->depth_reported) {
++		char key[96];
++		snprintf(key, sizeof(key), "depth-%ld-%p", (long)getpid(), (void *)c);
++		comp_vk_native_problems_depth(key, false);
++	}
++	comp_vk_native_depth_destroy(&c->depth_observer);
+ 	if (c->xcb_window != NULL) {
+ 		comp_vk_native_window_xcb_destroy(&c->xcb_window);
+ 	}
+@@ -15330,6 +15339,17 @@ comp_vk_native_compositor_create(struct xrt_device *xdev,
+ 	}
+ #endif
+ 
++#ifdef XRT_OS_LINUX_DESKTOP
++#ifdef XRT_HAVE_WAYLAND
++	if (c->use_wayland) {
++		c->depth_observer = comp_vk_native_depth_create(c->wayland_handle.display, c->wayland_handle.surface, 0);
++	} else
++#endif
++	{
++		c->depth_observer = comp_vk_native_depth_create(NULL, NULL, c->xcb_handle.window);
++	}
++#endif
++
+ 	// Initialize settings
+ 	memset(&c->settings, 0, sizeof(c->settings));
+ 	c->settings.preferred.width = xdev->hmd->screens[0].w_pixels;
+@@ -16385,6 +16405,31 @@ comp_vk_native_compositor_get_rear_budget(struct xrt_compositor *xc, struct u_re
+  *   @p off_panel_for_projection this returns the window's own size, centred on
+  *   the panel. It is not a position, and nothing phase-related reads it.
+  */
++int
++comp_vk_native_compositor_get_depth_limits(struct xrt_compositor *xc, struct u_depth_limits *out)
++{
++#ifdef XRT_OS_LINUX_DESKTOP
++	struct comp_vk_native_compositor *c = vk_comp(xc);
++	struct xrt_window_metrics metrics = {0};
++	int result = -ENODATA;
++	if (comp_vk_native_compositor_get_window_metrics(xc, &metrics) && metrics.valid) {
++		result = comp_vk_native_depth_get(c->depth_observer, metrics.window_pixel_width, out);
++	}
++	bool missing = result != 0;
++	if (!c->depth_reported || c->depth_missing != missing) {
++		char key[96];
++		snprintf(key, sizeof(key), "depth-%ld-%p", (long)getpid(), (void *)c);
++		comp_vk_native_problems_depth(key, missing);
++		c->depth_reported = true;
++		c->depth_missing = missing;
++	}
++	return result;
++#else
++	(void)xc; (void)out;
++	return -1;
++#endif
++}
++
+ static bool
+ vk_get_window_metrics(struct comp_vk_native_compositor *c,
+                       struct xrt_window_metrics *out_metrics,
+diff --git a/src/xrt/compositor/vk_native/comp_vk_native_compositor.h b/src/xrt/compositor/vk_native/comp_vk_native_compositor.h
+index 69c43c780..2fdac3122 100644
+--- a/src/xrt/compositor/vk_native/comp_vk_native_compositor.h
++++ b/src/xrt/compositor/vk_native/comp_vk_native_compositor.h
+@@ -20,6 +20,8 @@
+ struct comp_vk_native_compositor;
+ struct xrt_system_devices;
+ 
++#include "util/u_depth_limits.h"
++
+ #ifdef __cplusplus
+ extern "C" {
+ #endif
+@@ -639,6 +641,9 @@ comp_vk_native_compositor_set_cursor_measure_request(struct xrt_compositor *xc,
+ bool
+ comp_vk_native_compositor_get_cursor_measure_result(struct xrt_compositor *xc, struct u_cursor_measure_result *out);
+ 
++int
++comp_vk_native_compositor_get_depth_limits(struct xrt_compositor *xc, struct u_depth_limits *out);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/src/xrt/compositor/vk_native/comp_vk_native_depth.c b/src/xrt/compositor/vk_native/comp_vk_native_depth.c
+new file mode 100644
+index 000000000..a08e90f82
+--- /dev/null
++++ b/src/xrt/compositor/vk_native/comp_vk_native_depth.c
+@@ -0,0 +1,124 @@
++// Copyright 2026, Daniel Campos Ramos
++// SPDX-License-Identifier: BSL-1.0
++#include "comp_vk_native_depth.h"
++#include <stereo-declare.h>
++#include <wayland-client.h>
++#include <pthread.h>
++#include <poll.h>
++#include <errno.h>
++#include <stdlib.h>
++#include <unistd.h>
++
++struct comp_vk_native_depth {
++ pthread_t thread;
++ pthread_mutex_t lock;
++ struct wl_display *display;
++ struct wl_surface *surface;
++ uint32_t xwindow;
++ int wake[2];
++ double shown_width, sampled_width;
++ int result;
++ struct stereo_depth_limits limits;
++};
++
++static void *
++observe(void *arg)
++{
++ struct comp_vk_native_depth *d = arg;
++ struct wl_event_queue *queue = NULL;
++ Display *xdisplay = NULL;
++ int init = 0;
++ if (d->display) {
++  queue = wl_display_create_queue(d->display);
++  init = queue ? stereo_declare_wayland_init(d->display, queue) : -ENOMEM;
++ } else {
++  xdisplay = XOpenDisplay(NULL);
++  init = xdisplay ? 0 : -ENOTCONN;
++ }
++ for (;;) {
++  pthread_mutex_lock(&d->lock);
++  double width = d->shown_width;
++  pthread_mutex_unlock(&d->lock);
++  struct stereo_depth_limits limits;
++  int rc = init;
++  if (rc == 0) {
++   // The camera solver uses fractions of a 1920-wide eye. The library alone
++   // converts the output limits to that coordinate system for this window.
++   rc = d->display ? stereo_depth_wayland_get_buffer_limits(d->surface, 1920.0, width, &limits)
++                   : stereo_depth_x11_get_buffer_limits(xdisplay, d->xwindow, 1920.0, width, &limits);
++  }
++  pthread_mutex_lock(&d->lock);
++  d->result = rc;
++  d->sampled_width = width;
++  if (rc == 0) d->limits = limits;
++  pthread_mutex_unlock(&d->lock);
++  struct pollfd fds[2] = {{d->wake[0], POLLIN, 0}, {-1, POLLIN, 0}};
++  bool prepared = false;
++  if (d->display && init == 0) {
++   if (wl_display_dispatch_queue_pending(d->display, queue) < 0) init = -EPIPE;
++   else if (wl_display_prepare_read_queue(d->display, queue) == 0) {
++    prepared = true;
++    wl_display_flush(d->display);
++    fds[1].fd = wl_display_get_fd(d->display);
++   } else continue;
++  }
++  int polled;
++  do { polled = poll(fds, 2, 50); } while (polled < 0 && errno == EINTR);
++  if (prepared) {
++   if (fds[1].revents & POLLIN) {
++    if (wl_display_read_events(d->display) < 0) init = -EPIPE;
++    else if (wl_display_dispatch_queue_pending(d->display, queue) < 0) init = -EPIPE;
++   } else wl_display_cancel_read(d->display);
++   if (fds[1].revents & (POLLERR | POLLHUP)) init = -EPIPE;
++  }
++  if (polled < 0 || fds[0].revents) break;
++ }
++ if (d->display && queue) {
++  stereo_depth_wayland_unwatch(d->surface);
++  stereo_declare_wayland_finish();
++  wl_event_queue_destroy(queue);
++ }
++ if (xdisplay) XCloseDisplay(xdisplay);
++ return NULL;
++}
++
++struct comp_vk_native_depth *
++comp_vk_native_depth_create(void *display, void *surface, uint32_t xwindow)
++{
++ if ((!display || !surface) && !xwindow) return NULL;
++ struct comp_vk_native_depth *d = calloc(1, sizeof(*d));
++ if (!d) return NULL;
++ d->display = display; d->surface = surface; d->xwindow = xwindow;
++ d->result = -ENODATA;
++ if (pthread_mutex_init(&d->lock, NULL) != 0) { free(d); return NULL; }
++ if (pipe(d->wake) != 0) { pthread_mutex_destroy(&d->lock); free(d); return NULL; }
++ if (pthread_create(&d->thread, NULL, observe, d) != 0) {
++  close(d->wake[0]); close(d->wake[1]); pthread_mutex_destroy(&d->lock); free(d); return NULL;
++ }
++ return d;
++}
++
++int
++comp_vk_native_depth_get(struct comp_vk_native_depth *d, double shown_width, struct u_depth_limits *out)
++{
++ if (!d) return -ENOTSUP;
++ pthread_mutex_lock(&d->lock);
++ d->shown_width = shown_width;
++ int result = shown_width == d->sampled_width ? d->result : -ENODATA;
++ if (result == 0) { out->sunk_px = d->limits.sunk; out->popped_px = d->limits.popped; }
++ pthread_mutex_unlock(&d->lock);
++ return result;
++}
++
++void
++comp_vk_native_depth_destroy(struct comp_vk_native_depth **ptr)
++{
++ if (!ptr || !*ptr) return;
++ struct comp_vk_native_depth *d = *ptr;
++ const char stop = 1;
++ (void)write(d->wake[1], &stop, 1);
++ pthread_join(d->thread, NULL);
++ close(d->wake[0]); close(d->wake[1]);
++ pthread_mutex_destroy(&d->lock);
++ free(d); *ptr = NULL;
++}
+diff --git a/src/xrt/compositor/vk_native/comp_vk_native_depth.h b/src/xrt/compositor/vk_native/comp_vk_native_depth.h
+new file mode 100644
+index 000000000..2ba3c625b
+--- /dev/null
++++ b/src/xrt/compositor/vk_native/comp_vk_native_depth.h
+@@ -0,0 +1,10 @@
++// Copyright 2026, Daniel Campos Ramos
++// SPDX-License-Identifier: BSL-1.0
++#pragma once
++#include <stdint.h>
++#include "util/u_depth_limits.h"
++struct comp_vk_native_depth;
++// One observer per session window. All library Wayland state stays on its worker.
++struct comp_vk_native_depth *comp_vk_native_depth_create(void *display, void *surface, uint32_t xwindow);
++int comp_vk_native_depth_get(struct comp_vk_native_depth *d, double shown_width, struct u_depth_limits *out);
++void comp_vk_native_depth_destroy(struct comp_vk_native_depth **d);
+diff --git a/src/xrt/compositor/vk_native/comp_vk_native_problems.c b/src/xrt/compositor/vk_native/comp_vk_native_problems.c
+index aefc36d92..846864bcf 100644
+--- a/src/xrt/compositor/vk_native/comp_vk_native_problems.c
++++ b/src/xrt/compositor/vk_native/comp_vk_native_problems.c
+@@ -197,8 +197,22 @@ comp_vk_native_problems_layout(bool unsupported, const char *detail)
+ 	pthread_mutex_unlock(&lock);
+ }
+ 
++void
++comp_vk_native_problems_depth(const char *key, bool missing)
++{
++	pthread_mutex_lock(&lock);
++	if (engine_open(!missing)) {
++		int result = missing ? keep(SSP_PERSON, PACKAGE, key, "LOCAL11", NULL, 0,
++		    "{\"text_en\":\"The depth limits for this window's screen are unavailable. DisplayXR is keeping the current camera settings, so the picture may not match your depth limits. Check Display Settings in Stereo KWin.\"}") : clear(SSP_PERSON, PACKAGE, key);
++		if (result != 0) U_LOG_E("sparky-stereo-problems: depth problem: %s", error_en());
++	}
++	pthread_mutex_unlock(&lock);
++}
++
+ #else // !DXR_SPARKY_PROBLEMS
+ 
++void comp_vk_native_problems_depth(const char *key, bool missing) { (void)key; (void)missing; }
++
+ void
+ comp_vk_native_problems_declare(enum comp_vk_native_declare_problem kind, const char *detail)
+ {
+diff --git a/src/xrt/compositor/vk_native/comp_vk_native_problems.h b/src/xrt/compositor/vk_native/comp_vk_native_problems.h
+index f09e08764..b8908b844 100644
+--- a/src/xrt/compositor/vk_native/comp_vk_native_problems.h
++++ b/src/xrt/compositor/vk_native/comp_vk_native_problems.h
+@@ -62,6 +62,9 @@ comp_vk_native_problems_declare(enum comp_vk_native_declare_problem kind, const
+ void
+ comp_vk_native_problems_layout(bool unsupported, const char *detail);
+ 
++void
++comp_vk_native_problems_depth(const char *key, bool missing);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/src/xrt/state_trackers/oxr/oxr_depth_limits.c b/src/xrt/state_trackers/oxr/oxr_depth_limits.c
+index 239c4d212..6f2dd0f71 100644
+--- a/src/xrt/state_trackers/oxr/oxr_depth_limits.c
++++ b/src/xrt/state_trackers/oxr/oxr_depth_limits.c
+@@ -19,8 +19,7 @@
+ static bool
+ same_settings(const struct u_depth_settings *a, const struct u_depth_settings *b)
+ {
+-	return a->cls == b->cls && a->strength_percent == b->strength_percent && a->plane_mm == b->plane_mm &&
+-	       a->sunk_px == b->sunk_px && a->popped_px == b->popped_px;
++	return a->plane_mm == b->plane_mm;
+ }
+ 
+ static void
+@@ -57,31 +56,9 @@ oxr_depth_limits_start(struct oxr_depth_limits_state *st)
+ 	os_mutex_unlock(&st->lock);
+ }
+ 
+-static const char *
+-source_text(const struct u_depth_resolved *r, const struct u_depth_settings *s, char *buf, size_t size)
+-{
+-	int n = snprintf(buf, size, "%s", r->source == U_DEPTH_SOURCE_COMPOSITOR ? "the compositor's, for this window's output"
+-	                                                                           : "the person's absolute values");
+-	if (r->source == U_DEPTH_SOURCE_COMPOSITOR) {
+-		if (s->cls != U_VIEW_CLASS_AUTO) {
+-			n += snprintf(buf + n, size - (size_t)n, "; class %s x%.3g", u_view_class_name(s->cls),
+-			              u_view_class_factor(s->cls));
+-		}
+-		if (s->strength_percent != 100.0) {
+-			n += snprintf(buf + n, size - (size_t)n, "; strength %.4g %%", s->strength_percent);
+-		}
+-		if (r->sunk_replaced) {
+-			n += snprintf(buf + n, size - (size_t)n, "; sunk replaced by the person's value");
+-		}
+-		if (r->popped_replaced) {
+-			snprintf(buf + n, size - (size_t)n, "; popped replaced by the person's value");
+-		}
+-	}
+-	return buf;
+-}
+-
+ bool
+ oxr_depth_limits_update(struct oxr_depth_limits_state *st,
++                        const struct u_depth_limits *announced,
+                         const struct xrt_vec3 *raw_eyes,
+                         uint32_t eye_count,
+                         float aspect,
+@@ -101,19 +78,12 @@ oxr_depth_limits_update(struct oxr_depth_limits_state *st,
+ 		reload_settings(st, false);
+ 	}
+ 
+-	struct u_depth_limits ann;
+-	uint64_t ann_serial = 0;
+-	const bool have_ann = u_depth_limits_announced(&ann, &ann_serial);
+ 	struct u_depth_resolved r;
+-	if (!u_depth_resolve(&st->settings, have_ann ? &ann : NULL, &r)) {
++	if (!u_depth_resolve(&st->settings, announced, &r)) {
+ 		if (!st->said_none || st->said_none_settings_serial != st->settings_serial) {
+ 			st->said_none = true;
+ 			st->said_none_settings_serial = st->settings_serial;
+-			U_LOG_W("Depth limits: none. The compositor announced no depth limits for this window (Stereo KWin sends "
+-			        "them to Wayland surfaces, and this window is an X11 client of Xwayland), and no absolute sunk "
+-			        "value is set (DXR_VIEW_SUNK_PX, or sunk-px in the file view-depth). The camera rig keeps "
+-			        "DisplayXR's own defaults (ipdFactor 1, convergence 0.5 diopters); the class, strength and "
+-			        "screen plane have no limits to apply to.");
++			U_LOG_W("Depth limits for this window's output are unavailable; the current camera rig is retained.");
+ 		}
+ 		st->applied = false; // when limits come, the rig is solved again
+ 		os_mutex_unlock(&st->lock);
+@@ -131,11 +101,13 @@ oxr_depth_limits_update(struct oxr_depth_limits_state *st,
+ 	}
+ 	const double es_q = round(es * 1.0e4) / 1.0e4;
+ 	const double aspect_q = round((double)aspect * 1.0e3) / 1.0e3;
+-	if (st->applied && st->applied_ann_serial == ann_serial && st->applied_settings_serial == st->settings_serial &&
++	if (st->applied && st->applied_sunk == r.sunk_px && st->applied_popped == r.popped_px && st->applied_settings_serial == st->settings_serial &&
+ 	    st->applied_es == es_q && st->applied_aspect == aspect_q && st->applied_tan == (double)half_tan_vfov &&
+-	    st->applied_n == (double)nominal_viewer_z) {
++	    st->applied_n == (double)nominal_viewer_z && st->applied_m2v == m2v) {
++		*out_ipd_factor = st->ipd;
++		*out_inv_convergence = st->invc;
+ 		os_mutex_unlock(&st->lock);
+-		return false;
++		return true;
+ 	}
+ 
+ 	struct u_depth_rig_input in = {
+@@ -174,13 +146,7 @@ oxr_depth_limits_update(struct oxr_depth_limits_state *st,
+ 			invc = invc_max;
+ 		}
+ 	}
+-	if (r.source == U_DEPTH_SOURCE_PERSON && (st->settings.cls != U_VIEW_CLASS_AUTO || st->settings.strength_percent != 100.0)) {
+-		snprintf(notes + strlen(notes), sizeof(notes) - strlen(notes),
+-		         " The class and the strength scale the compositor's limits; there are none, so the absolute values "
+-		         "are used as they are.");
+-	}
+-	char src[200];
+-	source_text(&r, &st->settings, src, sizeof(src));
++	const char *src = "the compositor limits for this window, converted by libstereo-declare";
+ 	if (rig.nearest_m > 0.0) {
+ 		U_LOG_W("Depth limits: sunk %.3f px, popped %.3f px of a view 1920 wide (%s); plane %.3f m: ipdFactor %.5g, "
+ 		        "convergence %.5g diopters; infinity %.3f %% of the canvas behind the plane, the popped limit is "
+@@ -193,7 +159,11 @@ oxr_depth_limits_update(struct oxr_depth_limits_state *st,
+ 		        r.sunk_px, src, r.plane_m, (double)ipd, (double)invc, rig.far_fraction * 100.0, notes);
+ 	}
+ 	st->applied = true;
+-	st->applied_ann_serial = ann_serial;
++	st->applied_sunk = r.sunk_px;
++	st->applied_popped = r.popped_px;
++	st->applied_m2v = m2v;
++	st->ipd = ipd;
++	st->invc = invc;
+ 	st->applied_settings_serial = st->settings_serial;
+ 	st->applied_es = es_q;
+ 	st->applied_aspect = aspect_q;
+diff --git a/src/xrt/state_trackers/oxr/oxr_depth_limits.h b/src/xrt/state_trackers/oxr/oxr_depth_limits.h
+index 3a24081d7..3a2740337 100644
+--- a/src/xrt/state_trackers/oxr/oxr_depth_limits.h
++++ b/src/xrt/state_trackers/oxr/oxr_depth_limits.h
+@@ -5,7 +5,7 @@
+  * @brief  A legacy application's camera rig follows the depth limits (ORDER 478 milestone 2b).
+  *
+  * The instance holds what the rig is solved from: the person's choices (u_depth_settings, read again when they
+- * change) and what the compositor announced (u_depth_limits_announced). On a locate, when any of them or the eyes or
++ * change) and what the compositor announced for the calling session window. On a locate, when any of them or the eyes or
+  * the canvas changed, the rig's separation and zero-parallax plane are solved again (u_depth_rig_solve) and handed
+  * back to be applied. The person's live keys still work on top of the values in force.
+  */
+@@ -29,7 +29,8 @@ struct oxr_depth_limits_state
+ 	uint64_t settings_serial;
+ 	int64_t settings_checked_ns;
+ 	bool applied;
+-	uint64_t applied_ann_serial;
++	double applied_sunk, applied_popped, applied_m2v;
++	float ipd, invc;
+ 	uint64_t applied_settings_serial;
+ 	double applied_es, applied_aspect, applied_tan, applied_n;
+ 	char last_refusal[1024]; //!< the refusal last logged, so a wrong value is said once, not every 500 ms
+@@ -49,6 +50,7 @@ oxr_depth_limits_start(struct oxr_depth_limits_state *st);
+  */
+ bool
+ oxr_depth_limits_update(struct oxr_depth_limits_state *st,
++                        const struct u_depth_limits *announced,
+                         const struct xrt_vec3 *raw_eyes,
+                         uint32_t eye_count,
+                         float aspect,
+diff --git a/src/xrt/state_trackers/oxr/oxr_session.c b/src/xrt/state_trackers/oxr/oxr_session.c
+index 1305bf674..4dd040e11 100644
+--- a/src/xrt/state_trackers/oxr/oxr_session.c
++++ b/src/xrt/state_trackers/oxr/oxr_session.c
+@@ -49,7 +49,6 @@
+ #include "util/u_canvas.h" // XR_DXR_display_zones zone-scoped locate
+ #include "util/u_rear_budget.h" // XR_DXR_depth_budget policy state machine
+ #include "util/u_camera_profile.h"
+-#include "util/u_view_class.h"
+ #include "oxr_depth_limits.h"
+ 
+ #include "math/m_api.h"
+@@ -4705,7 +4704,14 @@ locate_views_one(struct oxr_logger *log,
+ 						// choices, the eyes or the canvas changed, the separation and the plane are solved again
+ 						// and written to the rig, where the person's live keys still act on them.
+ 						float ipd_new, invc_new;
+-						if (oxr_depth_limits_update(&sess->sys->inst->depth_limits, raw_eyes, eye_count,
++						struct u_depth_limits announcement;
++						bool have_announcement = false;
++#ifdef XRT_HAVE_VK_NATIVE_COMPOSITOR
++						if (sess->is_vk_native_compositor && sess->sys->inst->depth_limits.driven) {
++							have_announcement = comp_vk_native_compositor_get_depth_limits(&sess->xcn->base, &announcement) == 0;
++						}
++#endif
++						if (oxr_depth_limits_update(&sess->sys->inst->depth_limits, have_announcement ? &announcement : NULL, raw_eyes, eye_count,
+ 						                            screen_height_m > 0.0f ? screen_width_m / screen_height_m : 0.0f,
+ 						                            nominal.z, active_rig->half_tan_vfov, active_rig->m2v, &ipd_new,
+ 						                            &invc_new)) {
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 7383aedfc..78fe45c85 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -5,7 +5,6 @@
+ 
+ set(tests
+     tests_camera_profile
+-    tests_view_class
+     tests_depth_limits
+     tests_oxr_session_window_binding
+     tests_cxx_wrappers
+diff --git a/tests/tests_depth_limits.cpp b/tests/tests_depth_limits.cpp
+index 7f525e59e..a1ffa6ccc 100644
+--- a/tests/tests_depth_limits.cpp
++++ b/tests/tests_depth_limits.cpp
+@@ -147,168 +147,37 @@ TEST_CASE("The closed form refuses inputs it cannot take", "[depth-limits]")
+ 	CHECK(rig.ipd_factor == 0.0f);
+ }
+ 
+-TEST_CASE("The person's choices on top of the compositor's limits", "[depth-limits]")
++TEST_CASE("The compositor limits pass unchanged for every output", "[depth-limits]")
+ {
+-	u_depth_settings s;
+-	u_depth_settings_default(&s);
+-	u_depth_limits ann{10.0, 4.0};
+-	u_depth_resolved r;
+-
+-	// nothing chosen: the limits as announced
+-	REQUIRE(u_depth_resolve(&s, &ann, &r));
+-	CHECK(r.source == U_DEPTH_SOURCE_COMPOSITOR);
+-	CHECK(r.sunk_px == 10.0);
+-	CHECK(r.popped_px == 4.0);
+-	CHECK(r.plane_m == Approx(1.0));
+-
+-	// tv is the same, headset is 2.5 times
+-	s.cls = U_VIEW_CLASS_TV;
+-	REQUIRE(u_depth_resolve(&s, &ann, &r));
+-	CHECK(r.sunk_px == 10.0);
+-	s.cls = U_VIEW_CLASS_HEADSET;
+-	REQUIRE(u_depth_resolve(&s, &ann, &r));
+-	CHECK(r.sunk_px == Approx(25.0));
+-	CHECK(r.popped_px == Approx(10.0));
+-
+-	// strength multiplies both; 0 switches depth off
+-	s.strength_percent = 50.0;
+-	REQUIRE(u_depth_resolve(&s, &ann, &r));
+-	CHECK(r.sunk_px == Approx(12.5));
+-	s.cls = U_VIEW_CLASS_AUTO;
+-	s.strength_percent = 0.0;
+-	REQUIRE(u_depth_resolve(&s, &ann, &r));
+-	CHECK(r.sunk_px == 0.0);
+-
+-	// an absolute value replaces its limit, the other stays the compositor's
+-	s.strength_percent = 100.0;
+-	s.sunk_px = 30.0;
+-	REQUIRE(u_depth_resolve(&s, &ann, &r));
+-	CHECK(r.sunk_px == 30.0);
+-	CHECK(r.sunk_replaced);
+-	CHECK(r.popped_px == 4.0);
+-	CHECK_FALSE(r.popped_replaced);
+-
+-	// the plane
+-	u_depth_settings_default(&s);
+-	s.plane_mm = 1500.0;
+-	REQUIRE(u_depth_resolve(&s, &ann, &r));
+-	CHECK(r.plane_m == Approx(1.5));
+-}
+-
+-TEST_CASE("With no compositor limits there is nothing to build on unless the person gave an absolute sunk value",
+-          "[depth-limits]")
+-{
+-	u_depth_settings s;
+-	u_depth_settings_default(&s);
+-	u_depth_resolved r;
+-	CHECK_FALSE(u_depth_resolve(&s, nullptr, &r));
+-	CHECK(r.source == U_DEPTH_SOURCE_NONE);
+-	s.cls = U_VIEW_CLASS_HEADSET; // a class and a strength have nothing to scale
+-	s.strength_percent = 200.0;
+-	CHECK_FALSE(u_depth_resolve(&s, nullptr, &r));
+-	s.popped_px = 5.0; // a popped value alone is not a sunk limit
+-	CHECK_FALSE(u_depth_resolve(&s, nullptr, &r));
+-	s.sunk_px = 20.0;
+-	REQUIRE(u_depth_resolve(&s, nullptr, &r));
+-	CHECK(r.source == U_DEPTH_SOURCE_PERSON);
+-	CHECK(r.sunk_px == 20.0); // absolute values are final: class and strength do not touch them
+-	CHECK(r.popped_px == 5.0);
+-	s.popped_px = 0.0;
+-	REQUIRE(u_depth_resolve(&s, nullptr, &r));
+-	CHECK(r.popped_px < 0.0);
+-}
+-
+-TEST_CASE("Settings: the environment, then the file, a wrong value refused and said", "[depth-limits]")
+-{
+-	char msg[1024];
+-	u_depth_settings s;
+-	Env env;
+-	// nothing: the defaults
+-	CHECK(u_depth_settings_parse(&s, env_get, &env, nullptr, nullptr, msg, sizeof(msg)));
+-	CHECK(s.cls == U_VIEW_CLASS_AUTO);
+-	CHECK(s.strength_percent == 100.0);
+-	CHECK(s.plane_mm == 0.0);
+-	CHECK(s.sunk_px == 0.0);
+-	CHECK(msg[0] == '\0');
+-
+-	// the file
+-	const char *file = "depth-strength=60\nscreen-plane-mm=1200\nsunk-px=30\npopped-px=12\n";
+-	CHECK(u_depth_settings_parse(&s, env_get, &env, file, "headset\n", msg, sizeof(msg)));
+-	CHECK(s.cls == U_VIEW_CLASS_HEADSET);
+-	CHECK(s.strength_percent == 60.0);
+-	CHECK(s.plane_mm == 1200.0);
+-	CHECK(s.sunk_px == 30.0);
+-	CHECK(s.popped_px == 12.0);
+-
+-	// the environment beats the file, key by key; the class too
+-	env.v["DXR_VIEW_DEPTH_STRENGTH"] = "150";
+-	env.v["DXR_VIEW_CLASS"] = "tv";
+-	CHECK(u_depth_settings_parse(&s, env_get, &env, file, "headset\n", msg, sizeof(msg)));
+-	CHECK(s.strength_percent == 150.0);
+-	CHECK(s.cls == U_VIEW_CLASS_TV);
+-	CHECK(s.plane_mm == 1200.0);
+-
+-	// a wrong environment value is refused, not read past to the file
+-	env.v.clear();
+-	env.v["DXR_VIEW_DEPTH_STRENGTH"] = "lots";
+-	CHECK_FALSE(u_depth_settings_parse(&s, env_get, &env, file, nullptr, msg, sizeof(msg)));
+-	CHECK(s.strength_percent == 100.0);
+-	CHECK(std::string(msg).find("DXR_VIEW_DEPTH_STRENGTH") != std::string::npos);
+-	CHECK(std::string(msg).find("lots") != std::string::npos);
+-	CHECK(std::string(msg).find("not applied") != std::string::npos);
+-
+-	// the others in the same call still apply
+-	CHECK(s.sunk_px == 30.0);
+-
+-	// out of range, negative, trailing text, empty
+-	for (const char *bad : {"-1", "1001", "50x", "nan", "inf", "1e999"}) {
+-		env.v.clear();
+-		env.v["DXR_VIEW_DEPTH_STRENGTH"] = bad;
+-		CAPTURE(bad);
+-		CHECK_FALSE(u_depth_settings_parse(&s, env_get, &env, nullptr, nullptr, msg, sizeof(msg)));
+-		CHECK(s.strength_percent == 100.0);
+-	}
+-	env.v.clear();
+-	env.v["DXR_VIEW_DEPTH_STRENGTH"] = "";
+-	CHECK(u_depth_settings_parse(&s, env_get, &env, nullptr, nullptr, msg, sizeof(msg))); // an empty variable is no choice
+-
+-	// a wrong class, in the environment and in the file
+-	env.v.clear();
+-	env.v["DXR_VIEW_CLASS"] = "screen";
+-	CHECK_FALSE(u_depth_settings_parse(&s, env_get, &env, nullptr, "headset\n", msg, sizeof(msg)));
+-	CHECK(s.cls == U_VIEW_CLASS_AUTO);
+-	CHECK(std::string(msg).find("tv, headset") != std::string::npos);
+-	env.v.clear();
+-	CHECK_FALSE(u_depth_settings_parse(&s, env_get, &env, nullptr, "flat\n", msg, sizeof(msg)));
+-	CHECK(std::string(msg).find("view-class") != std::string::npos);
+-
+-	// a key the file does not know is named, the rest applies
+-	CHECK_FALSE(u_depth_settings_parse(&s, env_get, &env, "strength=10\nsunk-px=12\n", nullptr, msg, sizeof(msg)));
+-	CHECK(std::string(msg).find("strength=10") != std::string::npos);
+-	CHECK(s.sunk_px == 12.0);
+-	// comments and blank lines are fine
+-	CHECK(u_depth_settings_parse(&s, env_get, &env, "# my limits\n\nsunk-px=12\n", nullptr, msg, sizeof(msg)));
++ u_depth_settings s; u_depth_settings_default(&s);
++ for (double sunk : {10.0, 12.1171875, 21.95703125}) {
++  u_depth_limits ann{sunk, sunk * 0.4}; u_depth_resolved r;
++  REQUIRE(u_depth_resolve(&s, &ann, &r));
++  CHECK(r.source == U_DEPTH_SOURCE_COMPOSITOR);
++  CHECK(r.sunk_px == ann.sunk_px); CHECK(r.popped_px == ann.popped_px);
++  s.plane_mm = 1500;
++  REQUIRE(u_depth_resolve(&s, &ann, &r));
++  CHECK(r.plane_m == Approx(1.5));
++  CHECK(r.sunk_px == ann.sunk_px); CHECK(r.popped_px == ann.popped_px);
++ }
++ u_depth_resolved r;
++ CHECK_FALSE(u_depth_resolve(&s, nullptr, &r));
++ CHECK(r.source == U_DEPTH_SOURCE_NONE);
+ }
+ 
+-TEST_CASE("What the compositor announced, and when it stops", "[depth-limits]")
++TEST_CASE("Only the screen plane is a runtime depth setting", "[depth-limits]")
+ {
+-	u_depth_limits_withdraw();
+-	u_depth_limits l{};
+-	uint64_t s0 = 0, s1 = 0, s2 = 0, s3 = 0;
+-	CHECK_FALSE(u_depth_limits_announced(&l, &s0));
+-	u_depth_limits_publish(10.0, 4.0);
+-	REQUIRE(u_depth_limits_announced(&l, &s1));
+-	CHECK(l.sunk_px == 10.0);
+-	CHECK(l.popped_px == 4.0);
+-	CHECK(s1 != s0);
+-	u_depth_limits_publish(10.0, 4.0); // the same again is not a change
+-	u_depth_limits_announced(&l, &s2);
+-	CHECK(s2 == s1);
+-	u_depth_limits_publish(20.0, 8.0);
+-	REQUIRE(u_depth_limits_announced(&l, &s3));
+-	CHECK(l.sunk_px == 20.0);
+-	CHECK(s3 != s2);
+-	u_depth_limits_withdraw();
+-	CHECK_FALSE(u_depth_limits_announced(&l, &s0));
+-	CHECK(s0 != s3);
++ Env env; char msg[1024]; u_depth_settings s;
++ REQUIRE(u_depth_settings_parse(&s, env_get, &env, "screen-plane-mm=1200\n", msg, sizeof(msg)));
++ CHECK(s.plane_mm == 1200);
++ env.v["DXR_VIEW_SCREEN_PLANE_MM"] = "1500";
++ REQUIRE(u_depth_settings_parse(&s, env_get, &env, "screen-plane-mm=1200\n", msg, sizeof(msg)));
++ CHECK(s.plane_mm == 1500);
++ env.v["DXR_VIEW_SCREEN_PLANE_MM"] = "bad";
++ CHECK_FALSE(u_depth_settings_parse(&s, env_get, &env, "screen-plane-mm=1200\n", msg, sizeof(msg)));
++ CHECK(s.plane_mm == 0);
++ CHECK(std::string(msg).find("bad") != std::string::npos);
++ env.v.clear();
++ CHECK_FALSE(u_depth_settings_parse(&s, env_get, &env, "unknown-setting=10\n", msg, sizeof(msg)));
++ CHECK(std::string(msg).find("unknown-setting") != std::string::npos);
+ }
+diff --git a/tests/tests_view_class.cpp b/tests/tests_view_class.cpp
+deleted file mode 100644
+index 45022546e..000000000
+--- a/tests/tests_view_class.cpp
++++ /dev/null
+@@ -1,125 +0,0 @@
+-// Copyright 2026, The DisplayXR Project
+-// SPDX-License-Identifier: BSL-1.0
+-#include "catch_amalgamated.hpp"
+-#include "util/u_view_class.h"
+-
+-#include <cstdio>
+-#include <cstring>
+-#include <filesystem>
+-#include <fstream>
+-#include <string>
+-
+-using Catch::Approx;
+-
+-namespace {
+-
+-struct Selected
+-{
+-	bool ok;
+-	u_view_class cls;
+-	u_view_class_source source;
+-	std::string message;
+-};
+-
+-Selected
+-select(const char *env, const char *file)
+-{
+-	Selected s{};
+-	char message[320];
+-	s.ok = u_view_class_select(env, file, &s.cls, &s.source, message, sizeof(message));
+-	s.message = message;
+-	return s;
+-}
+-
+-std::string
+-write_file(const char *name, const std::string &text)
+-{
+-	std::filesystem::path p = std::filesystem::temp_directory_path() / name;
+-	std::ofstream(p, std::ios::binary) << text;
+-	return p.string();
+-}
+-
+-} // namespace
+-
+-TEST_CASE("The selector takes exactly the browser's two flat modes", "[view-class]")
+-{
+-	u_view_class cls = U_VIEW_CLASS_HEADSET;
+-	REQUIRE(u_view_class_parse("tv", &cls));
+-	CHECK(cls == U_VIEW_CLASS_TV);
+-	REQUIRE(u_view_class_parse("headset", &cls));
+-	CHECK(cls == U_VIEW_CLASS_HEADSET);
+-	cls = U_VIEW_CLASS_HEADSET;
+-	for (const char *bad : {"", "TV", "Tv", "tv ", " headset", "screen", "auto", "headset2", "flat", "0", "-1"}) {
+-		CAPTURE(bad);
+-		CHECK_FALSE(u_view_class_parse(bad, &cls));
+-		CHECK(cls == U_VIEW_CLASS_HEADSET);
+-	}
+-	CHECK_FALSE(u_view_class_parse(nullptr, &cls));
+-	CHECK(std::string(u_view_class_name(U_VIEW_CLASS_TV)) == "tv");
+-	CHECK(std::string(u_view_class_name(U_VIEW_CLASS_AUTO)) == "auto");
+-	CHECK(std::string(u_view_class_name(U_VIEW_CLASS_HEADSET)) == "headset");
+-}
+-
+-TEST_CASE("The person's selector: environment, then file, then auto", "[view-class]")
+-{
+-	std::string headset_file = write_file("dxr-view-class-headset", "headset\n");
+-	Selected s = select(nullptr, nullptr);
+-	CHECK(s.ok);
+-	CHECK(s.cls == U_VIEW_CLASS_AUTO);
+-	CHECK(s.source == U_VIEW_CLASS_FROM_DEFAULT);
+-	s = select(nullptr, headset_file.c_str());
+-	CHECK(s.ok);
+-	CHECK(s.cls == U_VIEW_CLASS_HEADSET);
+-	CHECK(s.source == U_VIEW_CLASS_FROM_FILE);
+-	s = select("tv", headset_file.c_str());
+-	CHECK(s.ok);
+-	CHECK(s.cls == U_VIEW_CLASS_TV);
+-	CHECK(s.source == U_VIEW_CLASS_FROM_ENVIRONMENT);
+-	s = select("", headset_file.c_str()); // an empty variable is no choice
+-	CHECK(s.cls == U_VIEW_CLASS_HEADSET);
+-	CHECK(s.source == U_VIEW_CLASS_FROM_FILE);
+-	s = select(nullptr, "/nonexistent/dxr-view-class"); // no file is no choice
+-	CHECK(s.ok);
+-	CHECK(s.source == U_VIEW_CLASS_FROM_DEFAULT);
+-	std::string empty_file = write_file("dxr-view-class-empty", "");
+-	s = select(nullptr, empty_file.c_str());
+-	CHECK(s.ok);
+-	CHECK(s.source == U_VIEW_CLASS_FROM_DEFAULT);
+-	std::filesystem::remove(headset_file);
+-	std::filesystem::remove(empty_file);
+-}
+-
+-TEST_CASE("A selector value that is not a display kind is refused and said", "[view-class]")
+-{
+-	std::string headset_file = write_file("dxr-view-class-valid", "headset\n");
+-	// the environment holds a wrong value: refused, the file's valid value is NOT used in its place
+-	Selected s = select("headest", headset_file.c_str());
+-	CHECK_FALSE(s.ok);
+-	CHECK(s.cls == U_VIEW_CLASS_AUTO);
+-	CHECK(s.source == U_VIEW_CLASS_FROM_DEFAULT);
+-	CHECK(s.message.find("DXR_VIEW_CLASS") != std::string::npos);
+-	CHECK(s.message.find("headest") != std::string::npos);
+-	CHECK(s.message.find("tv, headset") != std::string::npos);
+-	CHECK(s.message.find("Not applied") != std::string::npos);
+-	// the file holds a wrong value
+-	std::string bad_file = write_file("dxr-view-class-bad", "screen\n");
+-	s = select(nullptr, bad_file.c_str());
+-	CHECK_FALSE(s.ok);
+-	CHECK(s.cls == U_VIEW_CLASS_AUTO);
+-	CHECK(s.message.find(bad_file) != std::string::npos);
+-	CHECK(s.message.find("\"screen\"") != std::string::npos);
+-	// a number is not a display kind either
+-	s = select("2.5", nullptr);
+-	CHECK_FALSE(s.ok);
+-	CHECK(s.message.find("2.5") != std::string::npos);
+-	std::filesystem::remove(headset_file);
+-	std::filesystem::remove(bad_file);
+-}
+-
+-TEST_CASE("A class is a factor on the compositor's limits: auto and tv 1, headset 2.5 (libstereo-policy's kinds)",
+-          "[view-class]")
+-{
+-	CHECK(u_view_class_factor(U_VIEW_CLASS_AUTO) == 1.0);
+-	CHECK(u_view_class_factor(U_VIEW_CLASS_TV) == 1.0);
+-	CHECK(u_view_class_factor(U_VIEW_CLASS_HEADSET) == 2.5);
+-}

@@ -7,3 +7,5 @@ LOCAL6="DisplayXR cannot lay this program's 2D content in both pictures of its 3
 LOCAL7="Headset already in use"
 LOCAL8="The headset is already in use by process %s. Close that program's headset session and try again."
 LOCAL9="The headset is already in use by %s (process %s). Close that program's headset session and try again."
+LOCAL10="Depth limits unavailable"
+LOCAL11="The depth limits for this window's screen are unavailable. DisplayXR is keeping the current camera settings, so the picture may not match your depth limits. Check Display Settings in Stereo KWin."

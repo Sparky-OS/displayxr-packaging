@@ -7,3 +7,6 @@ LOCAL6="DisplayXR no puede colocar el contenido 2D de este programa en las dos i
 LOCAL7="El visor ya está en uso"
 LOCAL8="El proceso %s ya está usando el visor. Cierre la sesión del visor en ese programa y vuelva a intentarlo."
 LOCAL9="%s (proceso %s) ya está usando el visor. Cierre la sesión del visor en ese programa y vuelva a intentarlo."
+# LOCAL10 and LOCAL11: new depth messages, awaiting translations through the main session.
+LOCAL10="Depth limits unavailable"
+LOCAL11="The depth limits for this window's screen are unavailable. DisplayXR is keeping the current camera settings, so the picture may not match your depth limits. Check Display Settings in Stereo KWin."

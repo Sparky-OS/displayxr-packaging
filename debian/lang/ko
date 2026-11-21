@@ -7,3 +7,6 @@ LOCAL6="DisplayXR가 이 프로그램의 2D 콘텐츠를 3D 창의 두 이미지
 LOCAL7="헤드셋이 이미 사용 중입니다"
 LOCAL8="%s 프로세스가 이미 헤드셋을 사용 중입니다. 해당 프로그램에서 헤드셋 세션을 종료한 뒤 다시 시도하세요."
 LOCAL9="%s(프로세스 %s)에서 이미 헤드셋을 사용 중입니다. 해당 프로그램에서 헤드셋 세션을 종료한 뒤 다시 시도하세요."
+# LOCAL10 and LOCAL11: new depth messages, awaiting translations through the main session.
+LOCAL10="Depth limits unavailable"
+LOCAL11="The depth limits for this window's screen are unavailable. DisplayXR is keeping the current camera settings, so the picture may not match your depth limits. Check Display Settings in Stereo KWin."

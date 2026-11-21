@@ -7,3 +7,5 @@ LOCAL6="O DisplayXR não consegue posicionar o conteúdo 2D deste programa nas d
 LOCAL7="O visor já está em uso"
 LOCAL8="O visor já está em uso pelo processo %s. Feche a sessão do visor nesse programa e tente de novo."
 LOCAL9="O visor já está em uso por %s (processo %s). Feche a sessão do visor nesse programa e tente de novo."
+LOCAL10="Limites de profundidade indisponíveis"
+LOCAL11="Os limites de profundidade da tela desta janela não estão disponíveis. O DisplayXR está mantendo a configuração atual das câmeras, e a imagem pode não respeitar seus limites de profundidade. Confira as Configurações de tela no Stereo KWin."

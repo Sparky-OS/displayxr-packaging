@@ -7,3 +7,6 @@ LOCAL6="DisplayXR 无法把此程序的 2D 内容放进其 3D 窗口的两幅画
 LOCAL7="头显已在使用"
 LOCAL8="进程 %s 正在使用头显。请结束该程序的头显会话，然后重试。"
 LOCAL9="%s（进程 %s）正在使用头显。请结束该程序的头显会话，然后重试。"
+# LOCAL10 and LOCAL11: new depth messages, awaiting translations through the main session.
+LOCAL10="Depth limits unavailable"
+LOCAL11="The depth limits for this window's screen are unavailable. DisplayXR is keeping the current camera settings, so the picture may not match your depth limits. Check Display Settings in Stereo KWin."
