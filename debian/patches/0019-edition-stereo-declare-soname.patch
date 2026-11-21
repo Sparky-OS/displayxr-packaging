@@ -1,0 +1,17 @@
+Description: Allow the edition stereo limits library in the soname gate
+ This edition package links the edition library that supplies KWin limits.
+ Keep all other upstream soname checks unchanged.
+Author: Daniel Campos Ramos
+Origin: other, Sparky Stereo OS edition packaging
+Forwarded: not-needed, edition-only dependency, not for upstream
+
+--- a/scripts/package_deb_linux.sh
++++ b/scripts/package_deb_linux.sh
+@@ -453,6 +453,7 @@
+ # libwayland-client0 — no wl_* symbol is referenced, so --as-needed drops
+ # -lwayland-client and libwayland-dev is a build-time-only dependency.)
+ STABLE_SONAMES=(
++    libstereo-declare.so.1          # edition dependency: libstereo-declare1
+     libc.so.6 libm.so.6 libdl.so.2 libpthread.so.0 librt.so.1 ld-linux-x86-64.so.2
+     libstdc++.so.6 libgcc_s.so.1
+     libvulkan.so.1                  # libvulkan1

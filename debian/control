@@ -10,6 +10,7 @@ Build-Depends:
  libcjson-dev,
  libdbus-1-dev,
  libeigen3-dev,
+ libstereo-declare-dev (>= 1.12.1),
  libudev-dev,
  libvulkan-dev,
  libwayland-bin,
@@ -33,6 +34,7 @@ Architecture: amd64 arm64
 Depends:
  ${misc:Depends},
  ${shlibs:Depends},
+ libstereo-declare1 (>= 1.12.1),
  sparky-stereo-problems (>= 0.1.2),
 Recommends:
  displayxr-dashboard [amd64],

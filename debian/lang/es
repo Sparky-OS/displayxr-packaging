@@ -1,11 +1,9 @@
-# Translation pending: existing DisplayXR messages supplied in English.
 LOCAL1="DisplayXR no puede mostrar este programa en 3D"
 LOCAL2="DisplayXR no puede mostrar este programa en 3D. El escritorio no anuncia la declaración estéreo que necesita DisplayXR, así que el programa se muestra en plano, con sus dos vistas lado a lado. Use Stereo KWin, el escritorio de Sparky Stereo OS, y vuelva a iniciar el programa. DisplayXR indica: %s"
 LOCAL3="DisplayXR no puede mostrar este programa en 3D. DisplayXR no declara al escritorio la ventana que usa el programa, así que el programa se muestra en plano, con sus dos vistas lado a lado. Inicie el programa de modo que use la ventana que abre DisplayXR. DisplayXR indica: %s"
 LOCAL4="DisplayXR no puede mostrar este programa en 3D. Esta versión del entorno de ejecución se compiló sin la declaración de Wayland, así que el programa se muestra en plano, con sus dos vistas lado a lado. Instale el paquete displayxr-runtime de Sparky Stereo OS. DisplayXR indica: %s"
 LOCAL5="DisplayXR no puede mostrar este programa en 3D. No se pudo hacer la declaración al escritorio, así que el programa se muestra en plano, con sus dos vistas lado a lado. Vuelva a iniciar el programa. Si vuelve a ocurrir, consulte el registro del programa. DisplayXR indica: %s"
 LOCAL6="DisplayXR no puede colocar el contenido 2D de este programa en las dos imágenes de su ventana 3D. En una de ellas, el contenido 2D puede faltar o aparecer fuera de lugar. Use una versión del programa que coloque el contenido 2D en rectángulos simples sobre la imagen 3D. DisplayXR indica: %s"
-# LOCAL7 and LOCAL8: translation pending; English source text.
 LOCAL7="El visor ya está en uso"
 LOCAL8="El proceso %s ya está usando el visor. Cierre la sesión del visor en ese programa y vuelva a intentarlo."
 LOCAL9="%s (proceso %s) ya está usando el visor. Cierre la sesión del visor en ese programa y vuelva a intentarlo."

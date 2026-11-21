@@ -4,7 +4,6 @@ LOCAL3="DisplayXR nie może pokazać tego programu w 3D: jego okno jest oknem, k
 LOCAL4="DisplayXR nie może pokazać tego programu w 3D: ta wersja środowiska uruchomieniowego została zbudowana bez deklaracji Wayland, więc program jest pokazany jako dwa widoki obok siebie, płasko. Zainstaluj pakiet displayxr-runtime z Sparky Stereo OS. DisplayXR mówi: %s"
 LOCAL5="DisplayXR nie może pokazać tego programu w 3D: nie udało się złożyć deklaracji pulpitowi, więc program jest pokazany jako dwa widoki obok siebie, płasko. Uruchom program ponownie; jeśli się powtórzy, więcej mówi dziennik samego programu. DisplayXR mówi: %s"
 LOCAL6="DisplayXR nie potrafi ułożyć treści 2D tego programu w obu obrazach jego okna 3D, więc w jednym z nich może jej brakować albo może leżeć w złym miejscu. Użyj wersji programu, która umieszcza treść 2D jako zwykłe prostokąty nad obrazem 3D. DisplayXR podaje: %s"
-# LOCAL7 and LOCAL8: translation pending; English source text.
 LOCAL7="Gogle są już w użyciu"
 LOCAL8="Gogle są już używane przez proces %s. Zamknij sesję gogli w tym programie i spróbuj ponownie."
 LOCAL9="Gogle są już używane przez %s (proces %s). Zamknij sesję gogli w tym programie i spróbuj ponownie."
